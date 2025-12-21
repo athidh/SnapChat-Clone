@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "d7374a78-826c-4f53-bc9e-4e6fddba203c"
+      }
+    },
+    "android": {
+      "package": "com.athidh2136.client"
+    }
+  }
+}
