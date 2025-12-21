@@ -13,7 +13,8 @@ export default function AuthScreen() {
     const handleSubmit = () => {
         if (isLogin) {
             login(email, password);
-        } else {a
+        } else {
+            // TYPO FIXED: Removed the 'a' here
             signup(username, email, password);
         }
     };
