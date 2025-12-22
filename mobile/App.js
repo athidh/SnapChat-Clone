@@ -1,16 +1,19 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { ActivityIndicator, View } from 'react-native';
 
+// Components
+import AnimatedSplash from './src/components/AnimatedSplash'; // <--- NEW IMPORT
+
 // Screens
 import AuthScreen from './src/screens/AuthScreen';
 import CameraScreen from './src/screens/CameraScreen';
 import InboxScreen from './src/screens/InboxScreen';
 import FriendsScreen from './src/screens/FriendsScreen';
-import ChatScreen from './src/screens/ChatScreen'; // <--- ADDED THIS IMPORT
+import ChatScreen from './src/screens/ChatScreen'; 
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -56,9 +59,19 @@ function Navigation() {
 }
 
 export default function App() {
+  const [appIsReady, setAppIsReady] = useState(false);
+
+  useEffect(() => {
+     // Keep splash visible for 2 seconds to show off the animation
+     setTimeout(() => setAppIsReady(true), 2000); 
+  }, []);
+
   return (
-    <AuthProvider>
-      <Navigation />
-    </AuthProvider>
+    // Wrap everything in the AnimatedSplash
+    <AnimatedSplash isAppReady={appIsReady}>
+      <AuthProvider>
+        <Navigation />
+      </AuthProvider>
+    </AnimatedSplash>
   );
 }
