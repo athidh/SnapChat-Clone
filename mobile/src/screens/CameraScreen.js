@@ -60,7 +60,13 @@ export default function CameraScreen() {
     const takePicture = async () => {
         if (cameraRef.current) {
             try {
-                const data = await cameraRef.current.takePictureAsync({ quality: 1.0 });
+                // --- THE MAGIC FIX ---
+                // Changed quality from 1.0 to 0.4
+                // skipProcessing: true speeds up the capture significantly
+                const data = await cameraRef.current.takePictureAsync({ 
+                    quality: 0.4, 
+                    skipProcessing: true 
+                });
                 setPhoto(data.uri);
                 setShowSendModal(true);
             } catch (error) {
