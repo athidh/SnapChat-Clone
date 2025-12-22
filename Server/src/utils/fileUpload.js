@@ -3,12 +3,22 @@ const path = require('path');
 const fs = require('fs');
 
 // 1. Define the upload directory
+// Resolve to absolute path: server/uploads
 const uploadDir = path.join(__dirname, '../../uploads');
 
+console.log(`📂 Uploader Config: Target directory is ${uploadDir}`);
+
 // 2. Auto-Create the folder if it doesn't exist (Fixes Render/Git issue)
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    console.log(`✅ Created missing directory: ${uploadDir}`);
+try {
+    if (!fs.existsSync(uploadDir)) {
+        console.log(`⚠️ Directory missing. Creating: ${uploadDir}`);
+        fs.mkdirSync(uploadDir, { recursive: true });
+        console.log(`✅ Created missing directory successfully.`);
+    } else {
+        console.log(`✅ Directory already exists.`);
+    }
+} catch (err) {
+    console.error(`❌ CRITICAL ERROR: Could not create upload directory:`, err);
 }
 
 // STRATEGY: Save to disk first (Fast), then controller handles Cloudinary
