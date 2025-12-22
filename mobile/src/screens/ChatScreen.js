@@ -1,22 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // <--- FIX IMPORT
 import { getChatHistory, sendMessage } from '../services/api';
 
 export default function ChatScreen({ route, navigation }) {
-    const { friendId, friendName } = route.params; // Passed from FriendsScreen
+    const { friendId, friendName } = route.params; 
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
     const flatListRef = useRef();
+    
+    // FIX: Get safe area insets (top notch, bottom nav bar)
+    const insets = useSafeAreaInsets();
 
     useEffect(() => {
-        navigation.setOptions({ title: friendName }); // Set header title
-        loadMessages();
-        
-        // Simple polling for new messages every 3 seconds (Basic Real-time)
-        // In Phase 3, we can replace this with Socket.io
+        // loadMessages(); // Call immediately
         const interval = setInterval(loadMessages, 3000);
         return () => clearInterval(interval);
     }, []);
+
+    // Also load on focus to ensure fresh data
+    useEffect(() => {
+        const unsubscribe = navigation.addListener('focus', () => {
+            loadMessages();
+        });
+        return unsubscribe;
+    }, [navigation]);
 
     const loadMessages = async () => {
         try {
@@ -31,19 +39,19 @@ export default function ChatScreen({ route, navigation }) {
         if (!inputText.trim()) return;
         
         const tempText = inputText;
-        setInputText(''); // Clear immediately
+        setInputText(''); 
 
         try {
             await sendMessage(friendId, tempText);
-            loadMessages(); // Refresh immediately
+            loadMessages(); 
         } catch (e) {
             alert("Failed to send");
-            setInputText(tempText); // Restore if failed
+            setInputText(tempText); 
         }
     };
 
     const renderItem = ({ item }) => {
-        const isMe = item.sender !== friendId; // If sender is NOT friend, it's me
+        const isMe = item.sender !== friendId; 
         return (
             <View style={[styles.bubble, isMe ? styles.myBubble : styles.friendBubble]}>
                 <Text style={[styles.text, isMe ? styles.myText : styles.friendText]}>
@@ -54,11 +62,7 @@ export default function ChatScreen({ route, navigation }) {
     };
 
     return (
-        <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.container}
-            keyboardVerticalOffset={90}
-        >
+        <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <Text style={styles.backText}>{'< Back'}</Text>
@@ -72,26 +76,38 @@ export default function ChatScreen({ route, navigation }) {
                 keyExtractor={item => item._id}
                 renderItem={renderItem}
                 contentContainerStyle={{ padding: 15 }}
-                onContentSizeChange={() => flatListRef.current?.scrollToEnd()} // Auto scroll to bottom
+                onContentSizeChange={() => flatListRef.current?.scrollToEnd()} 
             />
 
-            <View style={styles.inputContainer}>
-                <TextInput
-                    style={styles.input}
-                    value={inputText}
-                    onChangeText={setInputText}
-                    placeholder="Send a chat..."
-                />
-                <TouchableOpacity onPress={handleSend} style={styles.sendBtn}>
-                    <Text style={styles.sendText}>Send</Text>
-                </TouchableOpacity>
-            </View>
-        </KeyboardAvoidingView>
+            {/* FIX: KeyboardAvoidingView wraps just the input area or the whole screen depending on preference.
+                Here wrapping the input ensures it moves up with keyboard. 
+            */}
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === "ios" ? "padding" : undefined} 
+                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+            >
+                {/* FIX: Add dynamic paddingBottom based on insets.bottom */}
+                <View style={[
+                    styles.inputContainer, 
+                    { paddingBottom: Math.max(insets.bottom, 20) } 
+                ]}>
+                    <TextInput
+                        style={styles.input}
+                        value={inputText}
+                        onChangeText={setInputText}
+                        placeholder="Send a chat..."
+                    />
+                    <TouchableOpacity onPress={handleSend} style={styles.sendBtn}>
+                        <Text style={styles.sendText}>Send</Text>
+                    </TouchableOpacity>
+                </View>
+            </KeyboardAvoidingView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: 'white', paddingTop: 40 },
+    container: { flex: 1, backgroundColor: 'white' },
     header: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderColor: '#eee' },
     backBtn: { marginRight: 15 },
     backText: { color: '#00bfff', fontSize: 16, fontWeight: 'bold' },
@@ -106,7 +122,15 @@ const styles = StyleSheet.create({
     friendText: { color: 'black' },
 
     // Input
-    inputContainer: { flexDirection: 'row', padding: 10, borderTopWidth: 1, borderColor: '#eee', alignItems: 'center' },
+    inputContainer: { 
+        flexDirection: 'row', 
+        paddingHorizontal: 10, 
+        paddingTop: 10, 
+        borderTopWidth: 1, 
+        borderColor: '#eee', 
+        alignItems: 'center',
+        backgroundColor: 'white' // Ensure background covers content behind it
+    },
     input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, marginRight: 10 },
     sendBtn: { padding: 10 },
     sendText: { color: '#00bfff', fontWeight: 'bold', fontSize: 16 }
