@@ -4,14 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ⚠️ IMPORTANT: Choose ONE of the following BASE_URL options:
 
 // OPTION 1: Local Development (Simulator/Emulator)
- const BASE_URL = 'http://10.228.16.56:3000/api'; 
+//const BASE_URL = 'http://192.168.20.2:3000/api'; 
 
 // OPTION 2: Local Development (Physical Device via Wi-Fi)
 // Replace with your computer's local IP address (e.g., from ipconfig/ifconfig)
 //const BASE_URL = 'http://192.168.1.5:3000/api'; // <--- UPDATE THIS IP
 
 // OPTION 3: Production (Render/Cloud)
-// const BASE_URL = 'https://snap-clone-backend.onrender.com/api'; 
+ const BASE_URL = 'https://snapchat-clone-backend.onrender.com/api'; 
 
 const api = axios.create({
     baseURL: BASE_URL,

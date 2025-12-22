@@ -9,7 +9,7 @@ import io from 'socket.io-client';
 // --- CONNECTION SETTINGS FOR EXPO GO ---
 // Replace '192.168.1.X' with your computer's actual local IP address.
 // Do not use 'localhost' if testing on a physical phone.
-const SOCKET_URL = 'http://10.228.16.56:3000'; 
+const SOCKET_URL = 'https://snapchat-clone-backend.onrender.com'; 
 
 export default function InboxScreen() {
     const { logout, userInfo } = useContext(AuthContext);
