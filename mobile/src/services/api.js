@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // const BASE_URL = 'http://192.168.1.5:3000/api'; 
 
 // OPTION 3: Current Setting
-const BASE_URL = 'http://192.168.20.2:3000/api'; 
+const BASE_URL = 'https://snapchat-clone-backend.onrender.com/api'; 
 
 const api = axios.create({
     baseURL: BASE_URL,
