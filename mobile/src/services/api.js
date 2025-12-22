@@ -4,14 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ⚠️ IMPORTANT: Choose ONE of the following BASE_URL options:
 
 // OPTION 1: Local Development (Simulator/Emulator)
-//const BASE_URL = 'http://192.168.20.2:3000/api'; 
+// const BASE_URL = 'http://10.0.2.2:3000/api'; 
 
 // OPTION 2: Local Development (Physical Device via Wi-Fi)
-// Replace with your computer's local IP address (e.g., from ipconfig/ifconfig)
-//const BASE_URL = 'http://192.168.1.5:3000/api'; // <--- UPDATE THIS IP
+// Replace with your computer's local IP address
+// const BASE_URL = 'http://192.168.1.5:3000/api'; 
 
-// OPTION 3: Production (Render/Cloud)
- const BASE_URL = 'https://snapchat-clone-backend.onrender.com/api'; 
+// OPTION 3: Current Setting
+const BASE_URL = 'http://192.168.20.2:3000/api'; 
 
 const api = axios.create({
     baseURL: BASE_URL,
@@ -31,11 +31,10 @@ export const loginUser = (email, password) => api.post('/auth/login', { email, p
 export const signupUser = (username, email, password) => api.post('/auth/signup', { username, email, password });
 
 // Friend Management
-// Ensure these routes match your backend authRoutes.js
 export const searchUsers = (query) => api.get(`/auth/search?query=${query}`);
 export const sendFriendRequest = (friendId) => api.post('/auth/request', { friendId });
 export const acceptFriendRequest = (friendId) => api.post('/auth/accept', { friendId });
-export const getFriendsData = () => api.get('/auth/friends-data'); // Fetches friends AND requests
+export const getFriendsData = () => api.get('/auth/friends-data'); 
 
 // --- CHAT ---
 export const sendMessage = (recipientId, text) => api.post('/chat/send', { recipientId, text });
@@ -45,19 +44,26 @@ export const getChatHistory = (friendId) => api.get(`/chat/history/${friendId}`)
 export const getInbox = () => api.get('/snaps/inbox');
 export const viewSnap = (id) => api.post(`/snaps/view/${id}`);
 
-export const sendSnap = async (imageUri, recipientId, timer = 10) => {
+// UPDATED: Now supports Video
+export const sendSnap = async (fileUri, recipientId, timer = 10, type = 'image') => {
     const formData = new FormData();
     
-    let validUri = imageUri;
+    let validUri = fileUri;
+    // React Native often requires 'file://' prefix for local files
     if (!validUri.startsWith('file://')) {
         validUri = 'file://' + validUri;
     }
-    const filename = validUri.split('/').pop();
+    
+    // Determine file settings based on type
+    const isVideo = type === 'video';
+    const ext = isVideo ? 'mp4' : 'jpg';
+    const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+    const filename = `snap_${Date.now()}.${ext}`;
 
     formData.append('snap', {
         uri: validUri,
         name: filename,
-        type: 'image/jpeg',
+        type: mimeType, // Crucial: Backend uses this to know how to handle the file
     });
     formData.append('recipientId', recipientId);
     formData.append('timer', timer.toString());

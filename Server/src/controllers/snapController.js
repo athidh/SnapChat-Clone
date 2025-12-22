@@ -12,58 +12,75 @@ cloudinary.config({
 
 // 1. Send Snap
 exports.sendSnap = async (req, res) => {
-    console.log("📸 HIT: sendSnap Controller");
+    try {
+        console.log("📸 HIT: sendSnap Controller");
 
-    if (!req.file) return res.status(400).json({ message: 'No image provided' });
+        if (!req.file) {
+            console.error("❌ sendSnap: No file received.");
+            return res.status(400).json({ message: 'No file provided' });
+        }
 
-    const { recipientId, timer } = req.body;
-    const senderId = req.user.id;
-    const absolutePath = path.resolve(req.file.path);
+        const { recipientId, timer } = req.body;
+        const senderId = req.user.id;
+        const absolutePath = path.resolve(req.file.path);
+        
+        // Detect File Type
+        const mimeType = req.file.mimetype;
+        const isVideo = mimeType.startsWith('video');
 
-    console.log(`✅ File received. Timer: ${timer}s`);
+        console.log(`✅ File received (${mimeType}). Timer: ${timer}s`);
 
-    // Grab the socket instance attached in app.js
-    const socketIO = req.io; 
+        // Grab the socket instance
+        const socketIO = req.io; 
 
-    // Instant Response to Sender (Fire & Forget)
-    // The sender gets a "Success" immediately, while the server works in the background.
-    res.status(201).json({ status: 'success', message: 'Processing' });
+        // Instant Response to Sender (Fire & Forget)
+        res.status(201).json({ status: 'success', message: 'Processing' });
 
-    // Start Background Upload with SocketIO passed along
-    processSnapInBackground(absolutePath, recipientId, senderId, timer, socketIO);
+        // Start Background Upload
+        setImmediate(() => {
+            processSnapInBackground(absolutePath, recipientId, senderId, timer, socketIO, isVideo);
+        });
+
+    } catch (err) {
+        console.error("🔥 Error in sendSnap:", err);
+        if (!res.headersSent) res.status(500).json({ message: 'Server Error' });
+    }
 };
 
-// 2. Background Processor (HIGH QUALITY MODE)
-const processSnapInBackground = async (filePath, recipientId, senderId, timer, io) => {
+// 2. Background Processor (Updated for Video)
+const processSnapInBackground = async (filePath, recipientId, senderId, timer, io, isVideo) => {
     try {
-        console.log("🚀 Starting Cloudinary Upload (High Quality)...");
+        console.log(`🚀 Starting Cloudinary Upload (${isVideo ? 'VIDEO' : 'IMAGE'})...`);
         const startTime = Date.now();
 
-        // --- HIGH QUALITY SETTINGS ---
-        const cloudResult = await cloudinary.uploader.upload(filePath, {
+        // --- DYNAMIC UPLOAD SETTINGS ---
+        const uploadOptions = {
             folder: 'snap_private_clone',
-            resource_type: 'image',
-            
-            // 1. "auto:best" = Visually lossless. 
-            // It compresses the file size significantly but keeps 100% visual clarity.
-            quality: "auto:best", 
-            
-            // 2. Convert to WebP/AVIF automatically (smaller file, same quality)
-            fetch_format: "auto",
-            
-            // 3. Limit width to 1440px (QHD). 
-            // This is sharp enough for the largest phone screens (Samsung Ultra/iPhone Pro Max).
-            // Raw 4000px images are overkill for phone screens and cause the 1-minute lag.
-            width: 1440, 
-            crop: "limit",
-            
-            timeout: 120000 // Increased timeout to 2 mins just in case
-        });
+            resource_type: "auto", // Allows both Image and Video
+            timeout: 600000 // 10 min timeout for slow networks
+        };
+
+        if (isVideo) {
+            // VIDEO SETTINGS
+            uploadOptions.quality = "auto"; // Optimized for streaming
+            // We generally don't resize videos here to avoid long processing times on free tier
+        } else {
+            // IMAGE SETTINGS (Your High Quality Config)
+            uploadOptions.quality = "auto:best"; // Visually lossless
+            uploadOptions.fetch_format = "auto";
+            uploadOptions.width = 1440; // High Res
+            uploadOptions.crop = "limit";
+        }
+
+        const cloudResult = await cloudinary.uploader.upload(filePath, uploadOptions);
 
         const duration = (Date.now() - startTime) / 1000;
         console.log(`✅ Upload Done in ${duration}s. Size: ${(cloudResult.bytes / 1024).toFixed(2)}KB`);
 
         // Save to DB
+        // We store the 'resource_type' so the frontend knows whether to render <Image> or <Video>
+        // Note: You might need to add 'mediaType' to your Mongoose Schema if you want to be strict,
+        // otherwise Mongoose might ignore it. For now, we rely on the extension in photoUrl or a loose schema.
         const newSnap = await Snap.create({
             sender: senderId,
             recipient: recipientId,
@@ -71,27 +88,25 @@ const processSnapInBackground = async (filePath, recipientId, senderId, timer, i
             cloudinaryId: cloudResult.public_id,
             timer: timer || 10,
             status: 'delivered'
+            // mediaType: isVideo ? 'video' : 'image' // Optional: Add to Schema for robust handling
         });
 
         // --- REAL-TIME TRIGGER ---
-        // This is what makes the phone beep INSTANTLY after upload finishes
         if (io) {
             console.log(`📡 Emitting 'new_snap' to user: ${recipientId}`);
             
-            // Populate sender info so the notification shows "Username sent a snap"
             const populatedSnap = await Snap.findById(newSnap._id)
                 .populate('sender', 'username avatar');
                 
             io.to(recipientId).emit('new_snap', populatedSnap);
         } else {
-            console.warn("⚠️ Socket.io instance not found. Real-time notification skipped.");
+            console.warn("⚠️ Socket.io instance not found.");
         }
         // -------------------------
 
     } catch (err) {
         console.error("🔥 Upload Failed:", err);
     } finally {
-        // Always delete the local temp file to keep the server clean
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 };
@@ -140,8 +155,10 @@ exports.viewSnap = async (req, res) => {
             }
         });
 
-        // Delete from cloud immediately (Snapchat style security)
-        await cloudinary.uploader.destroy(snap.cloudinaryId);
+        // Delete from cloud
+        await cloudinary.uploader.destroy(snap.cloudinaryId, { 
+            resource_type: snap.photoUrl.endsWith('.mp4') ? 'video' : 'image' 
+        });
 
     } catch (err) {
         res.status(500).json({ message: err.message });

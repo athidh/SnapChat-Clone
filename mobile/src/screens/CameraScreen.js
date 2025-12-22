@@ -1,28 +1,57 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, FlatList, Modal, Alert, ActivityIndicator, TextInput } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator'; 
+import * as MediaLibrary from 'expo-media-library'; 
+import { Video, ResizeMode } from 'expo-av'; // Use expo-av for preview
 import { sendSnap, getFriendsData } from '../services/api';
 
 export default function CameraScreen() {
-    const [permission, requestPermission] = useCameraPermissions();
+    // Permissions
+    const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+    const [micPermission, requestMicPermission] = useMicrophonePermissions();
+
     const cameraRef = useRef(null);
     const [photo, setPhoto] = useState(null);
+    const [video, setVideo] = useState(null); 
+    const [facing, setFacing] = useState('back'); 
     
+    // NEW CAMERA FEATURES
+    const [mirrorMode, setMirrorMode] = useState(false);
+    const [cameraTimer, setCameraTimer] = useState(0);
+    const [countdown, setCountdown] = useState(0);
+    
+    // Video Logic
+    const [isRecording, setIsRecording] = useState(false);
+    // FIX 1: Default mode must be 'picture', not 'photo'
+    const [cameraMode, setCameraMode] = useState('picture'); 
+
     // UI State
     const [showSendModal, setShowSendModal] = useState(false);
     const [sending, setSending] = useState(false);
     const [friends, setFriends] = useState([]);
     const [filteredFriends, setFilteredFriends] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
-    
-    // Snap Options
-    const [selectedTimer, setSelectedTimer] = useState(10); // Default 10s
+    const [selectedTimer, setSelectedTimer] = useState(10); 
 
     useEffect(() => {
         if (showSendModal) {
             loadFriends();
         }
     }, [showSendModal]);
+
+    // Handle "Hold to Record" State Transition
+    // When switching to video mode via long press, we need to wait for the mode to update before recording
+    useEffect(() => {
+        let timeout;
+        if (isRecording && cameraMode === 'video' && cameraRef.current) {
+            // Slight delay to ensure camera is ready after mode switch
+            timeout = setTimeout(() => {
+                startRecordingInternal();
+            }, 500);
+        }
+        return () => clearTimeout(timeout);
+    }, [isRecording, cameraMode]);
 
     const loadFriends = async () => {
         try {
@@ -47,27 +76,151 @@ export default function CameraScreen() {
         }
     };
 
-    if (!permission) return <View />;
-    if (!permission.granted) {
+    // --- TOGGLES ---
+    const toggleCameraFacing = () => setFacing(c => (c === 'back' ? 'front' : 'back'));
+    const toggleMirror = () => setMirrorMode(p => !p);
+    const toggleTimer = () => setCameraTimer(p => (p === 0 ? 3 : p === 3 ? 10 : 0));
+    
+    // FIX 2: Toggle between 'picture' and 'video'
+    const toggleCameraMode = () => {
+        if (isRecording) return; // Don't switch while recording
+        setCameraMode(p => (p === 'picture' ? 'video' : 'picture'));
+    };
+
+    const saveMedia = async () => {
+        const asset = photo || video;
+        if (!asset) return;
+        try {
+            const { status } = await MediaLibrary.requestPermissionsAsync(true);
+            if (status !== 'granted') {
+                Alert.alert("Permission needed", "We need storage access to save the snap.");
+                return;
+            }
+            await MediaLibrary.createAssetAsync(asset);
+            Alert.alert("Saved!", `Snap saved to gallery 📸`);
+        } catch (e) {
+            console.log(e);
+            Alert.alert("Error", "Could not save snap.");
+        }
+    };
+
+    if (!cameraPermission || !micPermission) return <View />;
+    if (!cameraPermission.granted || !micPermission.granted) {
         return (
             <View style={styles.center}>
-                <Text style={{color:'white'}}>Camera access needed</Text>
-                <TouchableOpacity onPress={requestPermission}><Text style={styles.link}>Grant</Text></TouchableOpacity>
+                <Text style={{color:'white'}}>Camera & Mic access needed</Text>
+                <TouchableOpacity onPress={() => { requestCameraPermission(); requestMicPermission(); }}>
+                    <Text style={styles.link}>Grant Permissions</Text>
+                </TouchableOpacity>
             </View>
         );
     }
 
+    // --- RECORDING LOGIC ---
+    
+    const startRecordingInternal = async () => {
+        if (!cameraRef.current) return;
+        try {
+            console.log("🎥 Starting Recording...");
+            const data = await cameraRef.current.recordAsync({
+                maxDuration: 60,
+                quality: '720p',
+                mute: false,
+            });
+            
+            // FIX: Ensure state is reset here after promise resolves
+            setIsRecording(false);
+            console.log("🎥 Recording Finished", data.uri);
+            setVideo(data.uri);
+            setPhoto(null);
+            setShowSendModal(true);
+        } catch (error) {
+            console.error("Recording Error:", error);
+            // If recording fails, reset state
+            setIsRecording(false);
+            if (cameraMode === 'video') setCameraMode('picture');
+        }
+    };
+
+    const stopRecording = () => {
+        if (cameraRef.current && isRecording) {
+            console.log("🛑 Stopping Recording...");
+            cameraRef.current.stopRecording();
+            // Don't set isRecording(false) here; let startRecordingInternal handle it on resolution
+        }
+    };
+
+    // --- INTERACTION HANDLERS ---
+
+    const handlePress = () => {
+        if (cameraMode === 'video') {
+            if (isRecording) stopRecording();
+            else {
+                setIsRecording(true); 
+                // Effect will trigger startRecordingInternal
+            }
+        } else {
+            initiateCapture(); // Photo logic
+        }
+    };
+
+    const handleLongPress = () => {
+        // "Hold to Record" feature
+        if (cameraMode === 'picture') {
+            setCameraMode('video'); // Switch mode first
+            setIsRecording(true);   // Trigger effect
+        }
+    };
+
+    const handlePressOut = () => {
+        // Stop recording when releasing hold
+        if (isRecording) {
+            stopRecording();
+            // Reset to picture mode after a delay if it was a hold action
+             setTimeout(() => setCameraMode('picture'), 1000);
+        }
+    };
+
+    // --- PHOTO LOGIC ---
+    const initiateCapture = () => {
+        if (cameraTimer > 0) {
+            setCountdown(cameraTimer);
+            let counter = cameraTimer;
+            const interval = setInterval(() => {
+                counter -= 1;
+                setCountdown(counter);
+                if (counter === 0) {
+                    clearInterval(interval);
+                    takePicture();
+                }
+            }, 1000);
+        } else {
+            takePicture();
+        }
+    };
+
     const takePicture = async () => {
         if (cameraRef.current) {
             try {
-                // --- THE MAGIC FIX ---
-                // Changed quality from 1.0 to 0.4
-                // skipProcessing: true speeds up the capture significantly
                 const data = await cameraRef.current.takePictureAsync({ 
-                    quality: 0.4, 
+                    quality: 0.7, 
                     skipProcessing: true 
                 });
-                setPhoto(data.uri);
+
+                const actions = [{ resize: { width: 1080 } }];
+                if (mirrorMode && facing === 'front') {
+                    actions.push({ flip: ImageManipulator.FlipType.Horizontal });
+                }
+
+                const manipResult = await ImageManipulator.manipulateAsync(
+                    data.uri,
+                    actions, 
+                    { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+                );
+
+                console.log("📸 Snap:", manipResult.uri); 
+                setPhoto(manipResult.uri);
+                setVideo(null);
                 setShowSendModal(true);
             } catch (error) {
                 Alert.alert("Camera Error", error.message);
@@ -78,11 +231,17 @@ export default function CameraScreen() {
     const handleSend = async (recipientId) => {
         setSending(true);
         try {
-            // Pass the selected timer
-            await sendSnap(photo, recipientId, selectedTimer);
+            const fileUri = video || photo;
+            // Determine type so the API knows how to handle it
+            const type = video ? 'video' : 'image';
+            
+            await sendSnap(fileUri, recipientId, selectedTimer, type);
             Alert.alert("Sent!", "Your snap has been delivered.");
             setPhoto(null);
+            setVideo(null);
             setShowSendModal(false);
+            // Reset to picture mode after sending
+            setCameraMode('picture');
         } catch (error) {
             Alert.alert("Error", "Could not send snap.");
         } finally {
@@ -92,10 +251,12 @@ export default function CameraScreen() {
 
     const closePreview = () => {
         setPhoto(null);
+        setVideo(null);
         setShowSendModal(false);
+        // Reset mode
+        setCameraMode('picture');
     };
 
-    // Timer Option Component
     const TimerOption = ({ value, label }) => (
         <TouchableOpacity 
             style={[styles.timerBtn, selectedTimer === value && styles.timerBtnActive]} 
@@ -105,15 +266,28 @@ export default function CameraScreen() {
         </TouchableOpacity>
     );
 
-    // 1. Preview Mode
-    if (photo) {
+    // PREVIEW SCREEN
+    if (photo || video) {
         return (
             <View style={styles.container}>
-                <Image source={{ uri: photo }} style={styles.preview} />
+                {video ? (
+                    <Video
+                        source={{ uri: video }}
+                        style={styles.preview}
+                        resizeMode={ResizeMode.COVER}
+                        shouldPlay
+                        isLooping
+                    />
+                ) : (
+                    <Image source={{ uri: photo }} style={styles.preview} />
+                )}
                 
                 <View style={styles.controls}>
                     <TouchableOpacity onPress={closePreview} style={styles.circleBtn}>
                         <Text style={styles.btnText}>X</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={saveMedia} style={styles.circleBtn}>
+                        <Text style={styles.btnText}>⬇️</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setShowSendModal(true)} style={[styles.circleBtn, { backgroundColor: '#00bfff' }]}>
                         <Text style={styles.btnText}>{'>'}</Text>
@@ -124,23 +298,21 @@ export default function CameraScreen() {
                 <Modal visible={showSendModal} transparent animationType="slide" onRequestClose={() => setShowSendModal(false)}>
                     <View style={styles.modalOverlay}>
                         <View style={styles.modalContent}>
-                            <Text style={styles.modalTitle}>Send To...</Text>
-                            
-                            {/* Timer Options Row */}
-                            <View style={styles.timerRow}>
-                                <Text style={{marginRight: 10, fontWeight:'bold'}}>Time:</Text>
-                                <TimerOption value={3} label="3s" />
-                                <TimerOption value={10} label="10s" />
-                                <TimerOption value={999} label="∞" />
-                            </View>
-
+                            <Text style={styles.modalTitle}>Send {video ? 'Video' : 'Snap'} To...</Text>
+                            {!video && (
+                                <View style={styles.timerRow}>
+                                    <Text style={{marginRight: 10, fontWeight:'bold'}}>Time:</Text>
+                                    <TimerOption value={3} label="3s" />
+                                    <TimerOption value={10} label="10s" />
+                                    <TimerOption value={999} label="∞" />
+                                </View>
+                            )}
                             <TextInput 
                                 style={styles.searchInput}
                                 placeholder="Search friends..."
                                 value={searchQuery}
                                 onChangeText={handleSearch}
                             />
-
                             <FlatList 
                                 data={filteredFriends}
                                 keyExtractor={item => item._id}
@@ -155,7 +327,6 @@ export default function CameraScreen() {
                                     </TouchableOpacity>
                                 )}
                             />
-
                             <TouchableOpacity onPress={() => setShowSendModal(false)} style={{marginTop: 15}}>
                                 <Text style={styles.cancelText}>Cancel</Text>
                             </TouchableOpacity>
@@ -166,13 +337,71 @@ export default function CameraScreen() {
         );
     }
 
+    // MAIN CAMERA RENDER
+    // FIX 3: Moved all controls OUTSIDE the CameraView tag to fix the children warning
     return (
         <View style={styles.container}>
-            <CameraView style={{ flex: 1 }} facing="back" ref={cameraRef}>
-                <View style={styles.cameraFooter}>
-                    <TouchableOpacity onPress={takePicture} style={styles.captureBtn} />
+            <CameraView 
+                style={StyleSheet.absoluteFill} // Make camera fill the parent View
+                facing={facing} 
+                ref={cameraRef}
+                mode={cameraMode}
+            />
+            
+            {/* OVERLAYS (Now siblings to CameraView) */}
+            
+            {/* TOOLBAR */}
+            <View style={styles.topControls}>
+                {/* Flip */}
+                <TouchableOpacity onPress={toggleCameraFacing} style={styles.iconBtn}>
+                    <Text style={styles.btnText}>🔄</Text>
+                </TouchableOpacity>
+
+                {/* Timer */}
+                <TouchableOpacity onPress={toggleTimer} style={styles.iconBtn}>
+                    <Text style={styles.iconText}>{cameraTimer > 0 ? `${cameraTimer}s` : '⏱️'}</Text>
+                </TouchableOpacity>
+
+                {/* Mirror */}
+                <TouchableOpacity 
+                    onPress={toggleMirror} 
+                    style={[styles.iconBtn, mirrorMode && { backgroundColor: '#00bfff' }]}
+                >
+                    <Text style={styles.iconText}>🪞</Text>
+                </TouchableOpacity>
+
+                {/* Video Mode Toggle */}
+                <TouchableOpacity 
+                    onPress={toggleCameraMode} 
+                    style={[styles.iconBtn, cameraMode === 'video' && { backgroundColor: '#FF3B30' }]}
+                >
+                    <Text style={styles.iconText}>📹</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* COUNTDOWN */}
+            {countdown > 0 && (
+                <View style={styles.countdownOverlay}>
+                    <Text style={styles.countdownText}>{countdown}</Text>
                 </View>
-            </CameraView>
+            )}
+
+            {/* CAPTURE BUTTON */}
+            <View style={styles.cameraFooter}>
+                <TouchableOpacity 
+                    onPress={handlePress}
+                    onLongPress={handleLongPress}
+                    onPressOut={handlePressOut}
+                    delayLongPress={200}
+                    style={[
+                        styles.captureBtn, 
+                        isRecording && styles.captureBtnRecording,
+                        cameraMode === 'video' && !isRecording && styles.captureBtnVideoMode
+                    ]} 
+                >
+                    {isRecording && <View style={styles.recordingIndicator} />}
+                </TouchableOpacity>
+            </View>
         </View>
     );
 }
@@ -181,11 +410,26 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'black' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor:'black' },
     preview: { flex: 1, borderRadius: 20 },
+    
+    // Capture Button Styles
     cameraFooter: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center' },
-    captureBtn: { width: 80, height: 80, borderRadius: 40, borderWidth: 6, borderColor: 'white' },
+    captureBtn: { width: 80, height: 80, borderRadius: 40, borderWidth: 6, borderColor: 'white', justifyContent:'center', alignItems:'center' },
+    captureBtnRecording: { borderColor: '#FF3B30', width: 90, height: 90 },
+    captureBtnVideoMode: { borderColor: '#FF3B30' },
+    recordingIndicator: { width: 30, height: 30, backgroundColor: '#FF3B30', borderRadius: 4 },
+
+    // Toolbar
+    topControls: { position: 'absolute', top: 50, right: 20, alignItems: 'center', flexDirection: 'column' },
+    iconBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+    btnText: { color: 'white', fontSize: 24, fontWeight: 'bold' },
+    iconText: { fontSize: 20 },
+    
+    // Countdown
+    countdownOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+    countdownText: { fontSize: 150, fontWeight: 'bold', color: 'white', textShadowColor: 'black', textShadowRadius: 10 },
+
     controls: { position: 'absolute', bottom: 30, flexDirection: 'row', width: '100%', justifyContent: 'space-between', paddingHorizontal: 30 },
     circleBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
-    btnText: { color: 'white', fontSize: 20, fontWeight: 'bold' },
     link: { color: 'blue', marginTop: 10 },
     
     modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)', padding: 20 },
@@ -197,8 +441,7 @@ const styles = StyleSheet.create({
     avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFC00', marginRight: 12 },
     friendName: { fontSize: 18, fontWeight: '500' },
     sendIcon: { fontSize: 20, color: '#00bfff' },
-
-    // Timer Styles
+    
     timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 15 },
     timerBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 15, borderWidth: 1, borderColor: '#ddd', marginHorizontal: 5 },
     timerBtnActive: { backgroundColor: 'black', borderColor: 'black' },
