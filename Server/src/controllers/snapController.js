@@ -27,13 +27,13 @@ exports.sendSnap = async (req, res) => {
         // Detect File Type
         const mimeType = req.file.mimetype;
         const isVideo = mimeType.startsWith('video');
+        const fileSizeMB = (req.file.size / (1024 * 1024)).toFixed(2);
 
-        console.log(`✅ File received (${mimeType}). Timer: ${timer}s`);
+        console.log(`✅ File Received: ${mimeType} | Size: ${fileSizeMB}MB | Timer: ${timer}s`);
 
-        // Grab the socket instance
         const socketIO = req.io; 
 
-        // Instant Response to Sender (Fire & Forget)
+        // Instant Response
         res.status(201).json({ status: 'success', message: 'Processing' });
 
         // Start Background Upload
@@ -47,40 +47,40 @@ exports.sendSnap = async (req, res) => {
     }
 };
 
-// 2. Background Processor (Updated for Video)
+// 2. Background Processor (Fixed for Video)
 const processSnapInBackground = async (filePath, recipientId, senderId, timer, io, isVideo) => {
     try {
-        console.log(`🚀 Starting Cloudinary Upload (${isVideo ? 'VIDEO' : 'IMAGE'})...`);
+        console.log(`🚀 Starting Cloudinary Upload [${isVideo ? 'VIDEO' : 'IMAGE'}]...`);
         const startTime = Date.now();
 
-        // --- DYNAMIC UPLOAD SETTINGS ---
+        // --- FIXED UPLOAD SETTINGS ---
         const uploadOptions = {
             folder: 'snap_private_clone',
-            resource_type: "auto", // Allows both Image and Video
-            timeout: 600000 // 10 min timeout for slow networks
+            timeout: 120000, // 2 minutes timeout is usually enough
+            resource_type: isVideo ? "video" : "image", // <--- FORCE "video" TO FIX TIMEOUT
+            chunk_size: 6000000, // 6MB chunk size helps stability
         };
 
-        if (isVideo) {
-            // VIDEO SETTINGS
-            uploadOptions.quality = "auto"; // Optimized for streaming
-            // We generally don't resize videos here to avoid long processing times on free tier
-        } else {
-            // IMAGE SETTINGS (Your High Quality Config)
-            uploadOptions.quality = "auto:best"; // Visually lossless
+        if (!isVideo) {
+            // Only apply these optimizations for images
+            uploadOptions.quality = "auto:best"; 
             uploadOptions.fetch_format = "auto";
-            uploadOptions.width = 1440; // High Res
+            uploadOptions.width = 1440; 
             uploadOptions.crop = "limit";
         }
 
         const cloudResult = await cloudinary.uploader.upload(filePath, uploadOptions);
 
-        const duration = (Date.now() - startTime) / 1000;
-        console.log(`✅ Upload Done in ${duration}s. Size: ${(cloudResult.bytes / 1024).toFixed(2)}KB`);
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        if (!cloudResult || !cloudResult.secure_url) {
+            throw new Error(`Cloudinary returned undefined result.`);
+        }
+
+        console.log(`✅ Upload Success! URL: ${cloudResult.secure_url}`);
+        console.log(`⏱️ Time: ${duration}s`);
 
         // Save to DB
-        // We store the 'resource_type' so the frontend knows whether to render <Image> or <Video>
-        // Note: You might need to add 'mediaType' to your Mongoose Schema if you want to be strict,
-        // otherwise Mongoose might ignore it. For now, we rely on the extension in photoUrl or a loose schema.
         const newSnap = await Snap.create({
             sender: senderId,
             recipient: recipientId,
@@ -88,24 +88,17 @@ const processSnapInBackground = async (filePath, recipientId, senderId, timer, i
             cloudinaryId: cloudResult.public_id,
             timer: timer || 10,
             status: 'delivered'
-            // mediaType: isVideo ? 'video' : 'image' // Optional: Add to Schema for robust handling
         });
 
-        // --- REAL-TIME TRIGGER ---
         if (io) {
             console.log(`📡 Emitting 'new_snap' to user: ${recipientId}`);
-            
             const populatedSnap = await Snap.findById(newSnap._id)
                 .populate('sender', 'username avatar');
-                
             io.to(recipientId).emit('new_snap', populatedSnap);
-        } else {
-            console.warn("⚠️ Socket.io instance not found.");
         }
-        // -------------------------
 
     } catch (err) {
-        console.error("🔥 Upload Failed:", err);
+        console.error("🔥 Background Upload Failed:", JSON.stringify(err, null, 2));
     } finally {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
@@ -155,9 +148,10 @@ exports.viewSnap = async (req, res) => {
             }
         });
 
-        // Delete from cloud
+        // Determine type for deletion
+        const isVideo = snap.photoUrl.match(/\.(mp4|mov|webm)$/i);
         await cloudinary.uploader.destroy(snap.cloudinaryId, { 
-            resource_type: snap.photoUrl.endsWith('.mp4') ? 'video' : 'image' 
+            resource_type: isVideo ? 'video' : 'image' 
         });
 
     } catch (err) {
