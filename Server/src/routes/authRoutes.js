@@ -6,9 +6,12 @@ const { protect } = require('../middleware/authMiddleware');
 router.post('/signup', authController.signup);
 router.post('/login', authController.login);
 
-// New Routes (Protected)
+// Protected Routes
 router.get('/search', protect, authController.searchUsers);
-router.post('/add-friend', protect, authController.addFriend);
-router.get('/friends', protect, authController.getFriends);
+
+// Friend Management
+router.post('/request', protect, authController.sendRequest); // Send Request
+router.post('/accept', protect, authController.acceptRequest); // Accept Request
+router.get('/friends-data', protect, authController.getFriendsData); // Get Lists
 
 module.exports = router;

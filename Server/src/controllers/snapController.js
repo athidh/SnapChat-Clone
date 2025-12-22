@@ -10,50 +10,61 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+// 1. Send Snap
 exports.sendSnap = async (req, res) => {
-    console.log("------------------------------------------------");
     console.log("📸 HIT: sendSnap Controller");
 
-    // 1. Validation
-    if (!req.file) {
-        return res.status(400).json({ message: 'No image file provided' });
-    }
+    if (!req.file) return res.status(400).json({ message: 'No image provided' });
 
     const { recipientId, timer } = req.body;
     const senderId = req.user.id;
     const absolutePath = path.resolve(req.file.path);
 
-    console.log("✅ Local File Saved at:", absolutePath);
+    console.log(`✅ File received. Timer: ${timer}s`);
 
-    // 2. IMMEDIATE RESPONSE (The "Magic" Fix)
-    // We tell the phone "Success" right now, so it doesn't time out waiting.
-    res.status(201).json({
-        status: 'success',
-        message: 'Snap received and processing in background'
-    });
+    // Grab the socket instance attached in app.js
+    const socketIO = req.io; 
 
-    // 3. BACKGROUND WORK (The Server keeps working after sending response)
-    // We don't await this, so it runs in the background
-    processSnapInBackground(absolutePath, recipientId, senderId, timer);
+    // Instant Response to Sender (Fire & Forget)
+    // The sender gets a "Success" immediately, while the server works in the background.
+    res.status(201).json({ status: 'success', message: 'Processing' });
+
+    // Start Background Upload with SocketIO passed along
+    processSnapInBackground(absolutePath, recipientId, senderId, timer, socketIO);
 };
 
-// This function runs completely independently of the user's phone connection
-const processSnapInBackground = async (filePath, recipientId, senderId, timer) => {
-    console.log("⏳ Background Upload Starting...");
-    
+// 2. Background Processor (HIGH QUALITY MODE)
+const processSnapInBackground = async (filePath, recipientId, senderId, timer, io) => {
     try {
-        // Upload to Cloudinary (Standard upload is fine now because we have infinite time)
+        console.log("🚀 Starting Cloudinary Upload (High Quality)...");
+        const startTime = Date.now();
+
+        // --- HIGH QUALITY SETTINGS ---
         const cloudResult = await cloudinary.uploader.upload(filePath, {
             folder: 'snap_private_clone',
             resource_type: 'image',
-            timeout: 600000, // 10 Minutes timeout (plenty of time!)
-            quality: "100"   // Force Cloudinary to keep 100% original quality
+            
+            // 1. "auto:best" = Visually lossless. 
+            // It compresses the file size significantly but keeps 100% visual clarity.
+            quality: "auto:best", 
+            
+            // 2. Convert to WebP/AVIF automatically (smaller file, same quality)
+            fetch_format: "auto",
+            
+            // 3. Limit width to 1440px (QHD). 
+            // This is sharp enough for the largest phone screens (Samsung Ultra/iPhone Pro Max).
+            // Raw 4000px images are overkill for phone screens and cause the 1-minute lag.
+            width: 1440, 
+            crop: "limit",
+            
+            timeout: 120000 // Increased timeout to 2 mins just in case
         });
 
-        console.log("☁️ Cloudinary Success:", cloudResult.secure_url);
+        const duration = (Date.now() - startTime) / 1000;
+        console.log(`✅ Upload Done in ${duration}s. Size: ${(cloudResult.bytes / 1024).toFixed(2)}KB`);
 
         // Save to DB
-        await Snap.create({
+        const newSnap = await Snap.create({
             sender: senderId,
             recipient: recipientId,
             photoUrl: cloudResult.secure_url, 
@@ -62,23 +73,30 @@ const processSnapInBackground = async (filePath, recipientId, senderId, timer) =
             status: 'delivered'
         });
 
-        console.log("✅ Database Saved (Background Job Complete)");
+        // --- REAL-TIME TRIGGER ---
+        // This is what makes the phone beep INSTANTLY after upload finishes
+        if (io) {
+            console.log(`📡 Emitting 'new_snap' to user: ${recipientId}`);
+            
+            // Populate sender info so the notification shows "Username sent a snap"
+            const populatedSnap = await Snap.findById(newSnap._id)
+                .populate('sender', 'username avatar');
+                
+            io.to(recipientId).emit('new_snap', populatedSnap);
+        } else {
+            console.warn("⚠️ Socket.io instance not found. Real-time notification skipped.");
+        }
+        // -------------------------
 
     } catch (err) {
-        console.error("🔥 BACKGROUND JOB FAILED:", err);
+        console.error("🔥 Upload Failed:", err);
     } finally {
-        // Always clean up the local file
-        try {
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                console.log("🧹 Local file deleted.");
-            }
-        } catch (e) {
-            console.log("⚠️ Cleanup Error:", e.message);
-        }
+        // Always delete the local temp file to keep the server clean
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 };
 
+// 3. Get Inbox
 exports.getInbox = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -95,22 +113,19 @@ exports.getInbox = async (req, res) => {
             data: { snaps }
         });
     } catch (err) {
+        console.log("Inbox Error:", err.message);
         res.status(500).json({ message: err.message });
     }
 };
 
+// 4. View Snap
 exports.viewSnap = async (req, res) => {
     try {
         const snapId = req.params.id;
         const snap = await Snap.findById(snapId);
 
-        if (!snap) {
-            return res.status(404).json({ message: 'Snap not found or already expired' });
-        }
-
-        if (snap.recipient.toString() !== req.user.id) {
-            return res.status(403).json({ message: 'Not authorized' });
-        }
+        if (!snap) return res.status(404).json({ message: 'Snap expired' });
+        if (snap.recipient.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' });
 
         snap.status = 'viewed';
         snap.viewedAt = Date.now();
@@ -125,6 +140,7 @@ exports.viewSnap = async (req, res) => {
             }
         });
 
+        // Delete from cloud immediately (Snapchat style security)
         await cloudinary.uploader.destroy(snap.cloudinaryId);
 
     } catch (err) {

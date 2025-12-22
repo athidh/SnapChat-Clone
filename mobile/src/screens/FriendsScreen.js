@@ -1,24 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { searchUsers, addFriend, getFriends } from '../services/api';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { searchUsers, sendFriendRequest, acceptFriendRequest, getFriendsData } from '../services/api';
+import { useNavigation } from '@react-navigation/native';
 
 export default function FriendsScreen() {
+    const navigation = useNavigation();
     const [query, setQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
+    
     const [myFriends, setMyFriends] = useState([]);
+    const [friendRequests, setFriendRequests] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Load friends on open
     useEffect(() => {
-        loadFriends();
+        loadData();
     }, []);
 
-    const loadFriends = async () => {
+    const loadData = async () => {
         try {
-            const res = await getFriends();
-            setMyFriends(res.data.data);
+            const res = await getFriendsData();
+            setMyFriends(res.data.data.friends);
+            setFriendRequests(res.data.data.requests);
         } catch (e) {
-            console.log("Error loading friends");
+            console.log("Error loading friends data");
         }
     };
 
@@ -36,28 +40,45 @@ export default function FriendsScreen() {
         }
     };
 
-    const handleAdd = async (id) => {
+    const handleSendRequest = async (id) => {
         setLoading(true);
         try {
-            await addFriend(id);
-            alert("Friend Added!");
+            await sendFriendRequest(id);
+            Alert.alert("Success", "Friend Request Sent!");
             setQuery('');
             setSearchResults([]);
-            loadFriends(); // Refresh list
         } catch (e) {
-            alert("Could not add friend");
+            Alert.alert("Error", e.response?.data?.message || "Could not send request");
         } finally {
             setLoading(false);
         }
     };
 
+    const handleAccept = async (id) => {
+        try {
+            await acceptFriendRequest(id);
+            Alert.alert("Success", "You are now friends!");
+            loadData(); // Refresh lists
+        } catch (e) {
+            Alert.alert("Error", "Could not accept request");
+        }
+    };
+
+    const openChat = (friend) => {
+        navigation.navigate('Chat', { 
+            friendId: friend._id, 
+            friendName: friend.username 
+        });
+    };
+
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Find Friends 🔍</Text>
+            <Text style={styles.title}>Social 👥</Text>
             
+            {/* SEARCH BAR */}
             <TextInput 
                 style={styles.input} 
-                placeholder="Search Username..." 
+                placeholder="Search Username or Email..." 
                 value={query}
                 onChangeText={handleSearch}
             />
@@ -72,8 +93,28 @@ export default function FriendsScreen() {
                         renderItem={({ item }) => (
                             <View style={styles.row}>
                                 <Text style={styles.username}>{item.username}</Text>
-                                <TouchableOpacity style={styles.addBtn} onPress={() => handleAdd(item._id)}>
-                                    <Text style={{color:'white', fontWeight:'bold'}}>ADD</Text>
+                                <TouchableOpacity style={styles.actionBtn} onPress={() => handleSendRequest(item._id)}>
+                                    <Text style={styles.btnText}>Request</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    />
+                </View>
+            )}
+
+            {/* FRIEND REQUESTS */}
+            {friendRequests.length > 0 && (
+                <View style={{marginBottom: 20}}>
+                    <Text style={[styles.sectionTitle, {color: '#F23C57'}]}>Pending Requests ({friendRequests.length})</Text>
+                    <FlatList 
+                        data={friendRequests}
+                        keyExtractor={item => item._id}
+                        renderItem={({ item }) => (
+                            <View style={styles.friendRow}>
+                                <View style={styles.avatar} />
+                                <Text style={styles.friendName}>{item.username}</Text>
+                                <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#00bfff'}]} onPress={() => handleAccept(item._id)}>
+                                    <Text style={styles.btnText}>Accept</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -82,16 +123,21 @@ export default function FriendsScreen() {
             )}
 
             {/* MY FRIENDS */}
-            <Text style={[styles.sectionTitle, {marginTop: 20}]}>My Friends ({myFriends.length})</Text>
+            <Text style={styles.sectionTitle}>My Friends</Text>
             <FlatList 
                 data={myFriends}
                 keyExtractor={item => item._id}
-                ListEmptyComponent={<Text style={{color:'#666', marginTop:10}}>No friends yet. Search above!</Text>}
+                refreshing={loading}
+                onRefresh={loadData}
+                ListEmptyComponent={<Text style={{color:'#666', marginTop:10}}>No friends yet.</Text>}
                 renderItem={({ item }) => (
-                    <View style={styles.friendRow}>
-                        <View style={styles.avatar} />
-                        <Text style={styles.friendName}>{item.username}</Text>
-                    </View>
+                    <TouchableOpacity style={styles.friendRow} onPress={() => openChat(item)}>
+                        <View style={{flexDirection:'row', alignItems:'center'}}>
+                            <View style={styles.avatar} />
+                            <Text style={styles.friendName}>{item.username}</Text>
+                        </View>
+                        <Text style={{color:'#00bfff', fontWeight:'bold'}}>Chat 💬</Text>
+                    </TouchableOpacity>
                 )}
             />
         </View>
@@ -102,13 +148,14 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'white', paddingTop: 50, paddingHorizontal: 20 },
     title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20 },
     input: { backgroundColor: '#f0f0f0', padding: 15, borderRadius: 10, marginBottom: 10, fontSize: 16 },
-    resultsBox: { maxHeight: 200, marginBottom: 20 },
-    sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#888', marginBottom: 10 },
+    resultsBox: { maxHeight: 150, marginBottom: 20, backgroundColor:'#fafafa', padding:10, borderRadius:10 },
+    sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#888', marginBottom: 10, marginTop: 10 },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: '#eee' },
     username: { fontSize: 16, fontWeight: '500' },
-    addBtn: { backgroundColor: 'black', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
+    actionBtn: { backgroundColor: 'black', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
+    btnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
     // Friends List
-    friendRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderColor: '#eee' },
+    friendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15, borderBottomWidth: 1, borderColor: '#eee' },
     avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFFC00', marginRight: 15 },
     friendName: { fontSize: 18, fontWeight: 'bold' }
 });

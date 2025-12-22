@@ -1,18 +1,51 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, TextInput, Modal, Alert, ActivityIndicator } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, FlatList, Modal, Alert, ActivityIndicator, TextInput } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-// Removed 'expo-image-manipulator' import as we want full quality now
-import { sendSnap } from '../services/api';
+import { sendSnap, getFriendsData } from '../services/api';
 
 export default function CameraScreen() {
     const [permission, requestPermission] = useCameraPermissions();
     const cameraRef = useRef(null);
     const [photo, setPhoto] = useState(null);
     
-    // Send Modal State
+    // UI State
     const [showSendModal, setShowSendModal] = useState(false);
-    const [recipientId, setRecipientId] = useState('');
     const [sending, setSending] = useState(false);
+    const [friends, setFriends] = useState([]);
+    const [filteredFriends, setFilteredFriends] = useState([]);
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    // Snap Options
+    const [selectedTimer, setSelectedTimer] = useState(10); // Default 10s
+
+    useEffect(() => {
+        if (showSendModal) {
+            loadFriends();
+        }
+    }, [showSendModal]);
+
+    const loadFriends = async () => {
+        try {
+            const res = await getFriendsData();
+            const friendsList = res.data.data.friends || [];
+            setFriends(friendsList);
+            setFilteredFriends(friendsList);
+        } catch (e) {
+            console.log("Error loading friends in camera", e);
+        }
+    };
+
+    const handleSearch = (text) => {
+        setSearchQuery(text);
+        if (text.trim() === '') {
+            setFilteredFriends(friends);
+        } else {
+            const filtered = friends.filter(friend => 
+                friend.username.toLowerCase().includes(text.toLowerCase())
+            );
+            setFilteredFriends(filtered);
+        }
+    };
 
     if (!permission) return <View />;
     if (!permission.granted) {
@@ -27,34 +60,44 @@ export default function CameraScreen() {
     const takePicture = async () => {
         if (cameraRef.current) {
             try {
-                // 1. Take Picture with HIGH Quality (0.0 - 1.0)
-                // 0.8 is usually indistinguishable from 1.0 but saves some bandwidth. 
-                // Using 1.0 for maximum quality as requested.
                 const data = await cameraRef.current.takePictureAsync({ quality: 1.0 });
-                
-                // 2. No Resizing - Use original URI directly
                 setPhoto(data.uri);
+                setShowSendModal(true);
             } catch (error) {
                 Alert.alert("Camera Error", error.message);
             }
         }
     };
 
-    const handleSend = async () => {
-        if (!recipientId) return alert("Enter a User ID");
+    const handleSend = async (recipientId) => {
         setSending(true);
         try {
-            console.log("Sending full quality photo:", photo);
-            await sendSnap(photo, recipientId);
+            // Pass the selected timer
+            await sendSnap(photo, recipientId, selectedTimer);
             Alert.alert("Sent!", "Your snap has been delivered.");
             setPhoto(null);
             setShowSendModal(false);
         } catch (error) {
-            Alert.alert("Error", "Could not send snap. Check server logs.");
+            Alert.alert("Error", "Could not send snap.");
         } finally {
             setSending(false);
         }
     };
+
+    const closePreview = () => {
+        setPhoto(null);
+        setShowSendModal(false);
+    };
+
+    // Timer Option Component
+    const TimerOption = ({ value, label }) => (
+        <TouchableOpacity 
+            style={[styles.timerBtn, selectedTimer === value && styles.timerBtnActive]} 
+            onPress={() => setSelectedTimer(value)}
+        >
+            <Text style={[styles.timerText, selectedTimer === value && styles.timerTextActive]}>{label}</Text>
+        </TouchableOpacity>
+    );
 
     // 1. Preview Mode
     if (photo) {
@@ -63,7 +106,7 @@ export default function CameraScreen() {
                 <Image source={{ uri: photo }} style={styles.preview} />
                 
                 <View style={styles.controls}>
-                    <TouchableOpacity onPress={() => setPhoto(null)} style={styles.circleBtn}>
+                    <TouchableOpacity onPress={closePreview} style={styles.circleBtn}>
                         <Text style={styles.btnText}>X</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setShowSendModal(true)} style={[styles.circleBtn, { backgroundColor: '#00bfff' }]}>
@@ -72,20 +115,42 @@ export default function CameraScreen() {
                 </View>
 
                 {/* Send Modal */}
-                <Modal visible={showSendModal} transparent animationType="slide">
+                <Modal visible={showSendModal} transparent animationType="slide" onRequestClose={() => setShowSendModal(false)}>
                     <View style={styles.modalOverlay}>
                         <View style={styles.modalContent}>
                             <Text style={styles.modalTitle}>Send To...</Text>
+                            
+                            {/* Timer Options Row */}
+                            <View style={styles.timerRow}>
+                                <Text style={{marginRight: 10, fontWeight:'bold'}}>Time:</Text>
+                                <TimerOption value={3} label="3s" />
+                                <TimerOption value={10} label="10s" />
+                                <TimerOption value={999} label="∞" />
+                            </View>
+
                             <TextInput 
-                                placeholder="Recipient User ID" 
-                                style={styles.input} 
-                                value={recipientId}
-                                onChangeText={setRecipientId}
+                                style={styles.searchInput}
+                                placeholder="Search friends..."
+                                value={searchQuery}
+                                onChangeText={handleSearch}
                             />
-                            <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
-                                {sending ? <ActivityIndicator color="#fff"/> : <Text style={styles.sendText}>Send Snap</Text>}
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setShowSendModal(false)}>
+
+                            <FlatList 
+                                data={filteredFriends}
+                                keyExtractor={item => item._id}
+                                style={{maxHeight: 300}}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity style={styles.friendRow} onPress={() => handleSend(item._id)}>
+                                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                            <View style={styles.avatar} />
+                                            <Text style={styles.friendName}>{item.username}</Text>
+                                        </View>
+                                        {sending ? <ActivityIndicator size="small" color="black"/> : <Text style={styles.sendIcon}>➤</Text>}
+                                    </TouchableOpacity>
+                                )}
+                            />
+
+                            <TouchableOpacity onPress={() => setShowSendModal(false)} style={{marginTop: 15}}>
                                 <Text style={styles.cancelText}>Cancel</Text>
                             </TouchableOpacity>
                         </View>
@@ -95,7 +160,6 @@ export default function CameraScreen() {
         );
     }
 
-    // 2. Camera Mode
     return (
         <View style={styles.container}>
             <CameraView style={{ flex: 1 }} facing="back" ref={cameraRef}>
@@ -117,11 +181,21 @@ const styles = StyleSheet.create({
     circleBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
     btnText: { color: 'white', fontSize: 20, fontWeight: 'bold' },
     link: { color: 'blue', marginTop: 10 },
-    modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.7)', padding: 20 },
-    modalContent: { backgroundColor: 'white', padding: 20, borderRadius: 20 },
+    
+    modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)', padding: 20 },
+    modalContent: { backgroundColor: 'white', padding: 20, borderRadius: 20, maxHeight: '80%' },
     modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
-    input: { borderBottomWidth: 1, borderColor: '#ccc', padding: 10, marginBottom: 20, fontSize: 16 },
-    sendBtn: { backgroundColor: '#00bfff', padding: 15, borderRadius: 10, alignItems: 'center' },
-    sendText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-    cancelText: { textAlign: 'center', marginTop: 15, color: 'red' }
+    searchInput: { backgroundColor: '#f0f0f0', padding: 12, borderRadius: 10, marginBottom: 15, fontSize: 16 },
+    cancelText: { textAlign: 'center', color: 'red', fontSize: 16, fontWeight: '500' },
+    friendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderColor: '#eee' },
+    avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFC00', marginRight: 12 },
+    friendName: { fontSize: 18, fontWeight: '500' },
+    sendIcon: { fontSize: 20, color: '#00bfff' },
+
+    // Timer Styles
+    timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 15 },
+    timerBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 15, borderWidth: 1, borderColor: '#ddd', marginHorizontal: 5 },
+    timerBtnActive: { backgroundColor: 'black', borderColor: 'black' },
+    timerText: { color: '#666', fontWeight: 'bold' },
+    timerTextActive: { color: 'white' }
 });
