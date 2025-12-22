@@ -10,6 +10,7 @@ import AuthScreen from './src/screens/AuthScreen';
 import CameraScreen from './src/screens/CameraScreen';
 import InboxScreen from './src/screens/InboxScreen';
 import FriendsScreen from './src/screens/FriendsScreen';
+import ChatScreen from './src/screens/ChatScreen'; // <--- ADDED THIS IMPORT
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -40,9 +41,14 @@ function Navigation() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {userToken == null ? (
+          // No Token -> Show Login
           <Stack.Screen name="Auth" component={AuthScreen} />
         ) : (
-          <Stack.Screen name="Home" component={AppTabs} />
+          // Has Token -> Show App
+          <>
+            <Stack.Screen name="Home" component={AppTabs} />
+            <Stack.Screen name="Chat" component={ChatScreen} /> 
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

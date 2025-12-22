@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const cloudinary = require('cloudinary').v2; // Moved import up
 
 // Load environment variables
 dotenv.config(); 
@@ -11,12 +12,14 @@ dotenv.config();
 // Import Routes
 const authRoutes = require('./routes/authRoutes');
 const snapRoutes = require('./routes/snapRoutes');
+const chatRoutes = require('./routes/chatRoutes'); // <--- ADDED THIS
 
 // Import DB Connection
 const connectDB = require('./config/db');
 
 // Import Socket Handler
-const socketHandler = require('./socket/socketHandler');
+// Assuming path is src/socket/socketHandler.js
+const socketHandler = require('./socket/socketHandler'); 
 
 // Initialize App & Server
 const app = express();
@@ -25,7 +28,7 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = new Server(server, {
     cors: {
-        origin: "*", // Allow all origins (since React Native runs on different IPs)
+        origin: "*", // Allow all origins (essential for mobile testing)
         methods: ["GET", "POST"]
     }
 });
@@ -46,6 +49,7 @@ app.use((req, res, next) => {
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/snaps', snapRoutes);
+app.use('/api/chat', chatRoutes); // <--- ADDED THIS
 
 // Health Check
 app.get('/', (req, res) => {
@@ -55,34 +59,27 @@ app.get('/', (req, res) => {
 // Initialize Real-time Logic
 socketHandler(io);
 
-// Start Server
-const PORT = process.env.PORT || 3000;
-
-// Test Cloudinary Connection
-const cloudinary = require('cloudinary').v2;
-
-// We must explicitly load config here for the test to work
+// Cloudinary Configuration & Test
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-console.log("🔍 DEBUG: Config Loaded?");
-console.log("Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME); // Should print your cloud name
-console.log("API Key:", process.env.CLOUDINARY_API_KEY ? "Found (Hidden)" : "MISSING ❌");
-
+console.log(`🔍 Cloudinary Config: ${process.env.CLOUDINARY_CLOUD_NAME}`);
 cloudinary.api.ping((error, result) => {
     if (error) {
-        console.log("☁️ Cloudinary Ping FAILED ❌");
-        console.log("ERROR DETAILS:", error.message);
+        console.log("☁️ Cloudinary Ping FAILED ❌", error.message);
     } else {
         console.log("☁️ Cloudinary Ping SUCCESS ✅");
     }
 });
 
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Start Server
+const PORT = process.env.PORT || 3000;
+// Added '0.0.0.0' to ensure it's accessible via LAN IP
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server running on port ${PORT}`);
 });
 
 module.exports = app;
