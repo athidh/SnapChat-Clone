@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context'; // <--- FIX IMPORT
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; 
 import { getChatHistory, sendMessage } from '../services/api';
 
 export default function ChatScreen({ route, navigation }) {
@@ -9,16 +9,13 @@ export default function ChatScreen({ route, navigation }) {
     const [inputText, setInputText] = useState('');
     const flatListRef = useRef();
     
-    // FIX: Get safe area insets (top notch, bottom nav bar)
     const insets = useSafeAreaInsets();
 
     useEffect(() => {
-        // loadMessages(); // Call immediately
         const interval = setInterval(loadMessages, 3000);
         return () => clearInterval(interval);
     }, []);
 
-    // Also load on focus to ensure fresh data
     useEffect(() => {
         const unsubscribe = navigation.addListener('focus', () => {
             loadMessages();
@@ -70,26 +67,26 @@ export default function ChatScreen({ route, navigation }) {
                 <Text style={styles.headerTitle}>{friendName}</Text>
             </View>
 
-            <FlatList
-                ref={flatListRef}
-                data={messages}
-                keyExtractor={item => item._id}
-                renderItem={renderItem}
-                contentContainerStyle={{ padding: 15 }}
-                onContentSizeChange={() => flatListRef.current?.scrollToEnd()} 
-            />
-
-            {/* FIX: KeyboardAvoidingView wraps just the input area or the whole screen depending on preference.
-                Here wrapping the input ensures it moves up with keyboard. 
-            */}
+            {/* FIX: Wrap EVERYTHING (List + Input) in KeyboardAvoidingView */}
             <KeyboardAvoidingView 
-                behavior={Platform.OS === "ios" ? "padding" : undefined} 
-                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+                style={{ flex: 1 }} 
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0} 
             >
-                {/* FIX: Add dynamic paddingBottom based on insets.bottom */}
+                <FlatList
+                    ref={flatListRef}
+                    data={messages}
+                    keyExtractor={item => item._id}
+                    renderItem={renderItem}
+                    contentContainerStyle={{ padding: 15 }}
+                    // Auto-scroll to bottom when keyboard opens or messages arrive
+                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                    onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                />
+
                 <View style={[
                     styles.inputContainer, 
-                    { paddingBottom: Math.max(insets.bottom, 20) } 
+                    { paddingBottom: Math.max(insets.bottom, 10) } 
                 ]}>
                     <TextInput
                         style={styles.input}
@@ -129,7 +126,7 @@ const styles = StyleSheet.create({
         borderTopWidth: 1, 
         borderColor: '#eee', 
         alignItems: 'center',
-        backgroundColor: 'white' // Ensure background covers content behind it
+        backgroundColor: 'white' 
     },
     input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, marginRight: 10 },
     sendBtn: { padding: 10 },
