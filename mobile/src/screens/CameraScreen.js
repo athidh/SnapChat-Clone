@@ -3,11 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet, Image, FlatList, Modal, Alert
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator'; 
 import * as MediaLibrary from 'expo-media-library'; 
-import { Video, ResizeMode } from 'expo-av'; // Use expo-av for preview
+import { Video, ResizeMode } from 'expo-av'; 
 import { sendSnap, getFriendsData } from '../services/api';
 
 export default function CameraScreen() {
-    // Permissions
     const [cameraPermission, requestCameraPermission] = useCameraPermissions();
     const [micPermission, requestMicPermission] = useMicrophonePermissions();
 
@@ -16,14 +15,13 @@ export default function CameraScreen() {
     const [video, setVideo] = useState(null); 
     const [facing, setFacing] = useState('back'); 
     
-    // NEW CAMERA FEATURES
+    // FEATURES
     const [mirrorMode, setMirrorMode] = useState(false);
     const [cameraTimer, setCameraTimer] = useState(0);
     const [countdown, setCountdown] = useState(0);
     
     // Video Logic
     const [isRecording, setIsRecording] = useState(false);
-    // FIX 1: Default mode must be 'picture', not 'photo'
     const [cameraMode, setCameraMode] = useState('picture'); 
 
     // UI State
@@ -41,11 +39,9 @@ export default function CameraScreen() {
     }, [showSendModal]);
 
     // Handle "Hold to Record" State Transition
-    // When switching to video mode via long press, we need to wait for the mode to update before recording
     useEffect(() => {
         let timeout;
         if (isRecording && cameraMode === 'video' && cameraRef.current) {
-            // Slight delay to ensure camera is ready after mode switch
             timeout = setTimeout(() => {
                 startRecordingInternal();
             }, 500);
@@ -81,9 +77,8 @@ export default function CameraScreen() {
     const toggleMirror = () => setMirrorMode(p => !p);
     const toggleTimer = () => setCameraTimer(p => (p === 0 ? 3 : p === 3 ? 10 : 0));
     
-    // FIX 2: Toggle between 'picture' and 'video'
     const toggleCameraMode = () => {
-        if (isRecording) return; // Don't switch while recording
+        if (isRecording) return; 
         setCameraMode(p => (p === 'picture' ? 'video' : 'picture'));
     };
 
@@ -127,8 +122,6 @@ export default function CameraScreen() {
                 quality: '720p',
                 mute: false,
             });
-            
-            // FIX: Ensure state is reset here after promise resolves
             setIsRecording(false);
             console.log("🎥 Recording Finished", data.uri);
             setVideo(data.uri);
@@ -136,7 +129,6 @@ export default function CameraScreen() {
             setShowSendModal(true);
         } catch (error) {
             console.error("Recording Error:", error);
-            // If recording fails, reset state
             setIsRecording(false);
             if (cameraMode === 'video') setCameraMode('picture');
         }
@@ -146,7 +138,6 @@ export default function CameraScreen() {
         if (cameraRef.current && isRecording) {
             console.log("🛑 Stopping Recording...");
             cameraRef.current.stopRecording();
-            // Don't set isRecording(false) here; let startRecordingInternal handle it on resolution
         }
     };
 
@@ -157,26 +148,22 @@ export default function CameraScreen() {
             if (isRecording) stopRecording();
             else {
                 setIsRecording(true); 
-                // Effect will trigger startRecordingInternal
             }
         } else {
-            initiateCapture(); // Photo logic
+            initiateCapture(); 
         }
     };
 
     const handleLongPress = () => {
-        // "Hold to Record" feature
         if (cameraMode === 'picture') {
-            setCameraMode('video'); // Switch mode first
-            setIsRecording(true);   // Trigger effect
+            setCameraMode('video'); 
+            setIsRecording(true);   
         }
     };
 
     const handlePressOut = () => {
-        // Stop recording when releasing hold
         if (isRecording) {
             stopRecording();
-            // Reset to picture mode after a delay if it was a hold action
              setTimeout(() => setCameraMode('picture'), 1000);
         }
     };
@@ -228,32 +215,34 @@ export default function CameraScreen() {
         }
     };
 
-    const handleSend = async (recipientId) => {
-        setSending(true);
-        try {
-            const fileUri = video || photo;
-            // Determine type so the API knows how to handle it
-            const type = video ? 'video' : 'image';
-            
-            await sendSnap(fileUri, recipientId, selectedTimer, type);
-            Alert.alert("Sent!", "Your snap has been delivered.");
-            setPhoto(null);
-            setVideo(null);
-            setShowSendModal(false);
-            // Reset to picture mode after sending
-            setCameraMode('picture');
-        } catch (error) {
-            Alert.alert("Error", "Could not send snap.");
-        } finally {
-            setSending(false);
-        }
+    // --- OPTIMISTIC SENDING ---
+    const handleSend = (recipientId) => {
+        // 1. Capture current file details to pass to async function
+        const fileUri = video || photo;
+        const type = video ? 'video' : 'image';
+        const timer = selectedTimer;
+
+        // 2. CLOSE UI IMMEDIATELY (Instant Feel)
+        setPhoto(null);
+        setVideo(null);
+        setShowSendModal(false);
+        setCameraMode('picture');
+        
+        // 3. Perform Upload in Background
+        sendSnap(fileUri, recipientId, timer, type)
+            .then(() => {
+                console.log("✅ Background Upload Success");
+            })
+            .catch((err) => {
+                console.error("❌ Background Upload Failed", err);
+                Alert.alert("Upload Failed", "Your last snap could not be sent. Check connection.");
+            });
     };
 
     const closePreview = () => {
         setPhoto(null);
         setVideo(null);
         setShowSendModal(false);
-        // Reset mode
         setCameraMode('picture');
     };
 
@@ -323,7 +312,7 @@ export default function CameraScreen() {
                                             <View style={styles.avatar} />
                                             <Text style={styles.friendName}>{item.username}</Text>
                                         </View>
-                                        {sending ? <ActivityIndicator size="small" color="black"/> : <Text style={styles.sendIcon}>➤</Text>}
+                                        <Text style={styles.sendIcon}>➤</Text>
                                     </TouchableOpacity>
                                 )}
                             />
@@ -338,39 +327,28 @@ export default function CameraScreen() {
     }
 
     // MAIN CAMERA RENDER
-    // FIX 3: Moved all controls OUTSIDE the CameraView tag to fix the children warning
     return (
         <View style={styles.container}>
             <CameraView 
-                style={StyleSheet.absoluteFill} // Make camera fill the parent View
+                style={StyleSheet.absoluteFill} 
                 facing={facing} 
                 ref={cameraRef}
                 mode={cameraMode}
             />
             
-            {/* OVERLAYS (Now siblings to CameraView) */}
-            
-            {/* TOOLBAR */}
             <View style={styles.topControls}>
-                {/* Flip */}
                 <TouchableOpacity onPress={toggleCameraFacing} style={styles.iconBtn}>
                     <Text style={styles.btnText}>🔄</Text>
                 </TouchableOpacity>
-
-                {/* Timer */}
                 <TouchableOpacity onPress={toggleTimer} style={styles.iconBtn}>
                     <Text style={styles.iconText}>{cameraTimer > 0 ? `${cameraTimer}s` : '⏱️'}</Text>
                 </TouchableOpacity>
-
-                {/* Mirror */}
                 <TouchableOpacity 
                     onPress={toggleMirror} 
                     style={[styles.iconBtn, mirrorMode && { backgroundColor: '#00bfff' }]}
                 >
                     <Text style={styles.iconText}>🪞</Text>
                 </TouchableOpacity>
-
-                {/* Video Mode Toggle */}
                 <TouchableOpacity 
                     onPress={toggleCameraMode} 
                     style={[styles.iconBtn, cameraMode === 'video' && { backgroundColor: '#FF3B30' }]}
@@ -379,14 +357,12 @@ export default function CameraScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* COUNTDOWN */}
             {countdown > 0 && (
                 <View style={styles.countdownOverlay}>
                     <Text style={styles.countdownText}>{countdown}</Text>
                 </View>
             )}
 
-            {/* CAPTURE BUTTON */}
             <View style={styles.cameraFooter}>
                 <TouchableOpacity 
                     onPress={handlePress}
@@ -410,28 +386,20 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'black' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor:'black' },
     preview: { flex: 1, borderRadius: 20 },
-    
-    // Capture Button Styles
     cameraFooter: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center' },
     captureBtn: { width: 80, height: 80, borderRadius: 40, borderWidth: 6, borderColor: 'white', justifyContent:'center', alignItems:'center' },
     captureBtnRecording: { borderColor: '#FF3B30', width: 90, height: 90 },
     captureBtnVideoMode: { borderColor: '#FF3B30' },
     recordingIndicator: { width: 30, height: 30, backgroundColor: '#FF3B30', borderRadius: 4 },
-
-    // Toolbar
     topControls: { position: 'absolute', top: 50, right: 20, alignItems: 'center', flexDirection: 'column' },
     iconBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
     btnText: { color: 'white', fontSize: 24, fontWeight: 'bold' },
     iconText: { fontSize: 20 },
-    
-    // Countdown
     countdownOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
     countdownText: { fontSize: 150, fontWeight: 'bold', color: 'white', textShadowColor: 'black', textShadowRadius: 10 },
-
     controls: { position: 'absolute', bottom: 30, flexDirection: 'row', width: '100%', justifyContent: 'space-between', paddingHorizontal: 30 },
     circleBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
     link: { color: 'blue', marginTop: 10 },
-    
     modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)', padding: 20 },
     modalContent: { backgroundColor: 'white', padding: 20, borderRadius: 20, maxHeight: '80%' },
     modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
@@ -441,7 +409,6 @@ const styles = StyleSheet.create({
     avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFC00', marginRight: 12 },
     friendName: { fontSize: 18, fontWeight: '500' },
     sendIcon: { fontSize: 20, color: '#00bfff' },
-    
     timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 15 },
     timerBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 15, borderWidth: 1, borderColor: '#ddd', marginHorizontal: 5 },
     timerBtnActive: { backgroundColor: 'black', borderColor: 'black' },

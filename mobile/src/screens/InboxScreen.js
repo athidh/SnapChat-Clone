@@ -1,14 +1,15 @@
 import React, { useEffect, useState, useContext } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Image, StyleSheet, Modal, RefreshControl, Alert, SafeAreaView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Image, StyleSheet, Modal, RefreshControl, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getInbox, viewSnap } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
 import io from 'socket.io-client';
+// FIX: Import Video to play video snaps
+import { Video, ResizeMode } from 'expo-av'; 
 
-// --- CONNECTION SETTINGS FOR EXPO GO ---
-// Replace '192.168.1.X' with your computer's actual local IP address.
-// Do not use 'localhost' if testing on a physical phone.
+// Use the Render URL since your socket connected successfully there
 const SOCKET_URL = 'https://snapchat-clone-backend.onrender.com'; 
 
 export default function InboxScreen() {
@@ -21,16 +22,14 @@ export default function InboxScreen() {
     const [timeLeft, setTimeLeft] = useState(10);
     const [timerInterval, setTimerInterval] = useState(null);
 
-    // Socket Reference
     const [socket, setSocket] = useState(null);
 
     // --- PHASE 2: PREFETCH ENGINE ---
-    // This downloads images silently so they open INSTANTLY
     const prefetchImages = (snapsList) => {
         if (!snapsList) return;
         snapsList.forEach((snap) => {
-            if (snap.photoUrl) {
-                // Image.prefetch downloads the image to the disk cache
+            // Only prefetch images, skip videos (videos stream)
+            if (snap.photoUrl && !snap.photoUrl.endsWith('.mp4')) {
                 Image.prefetch(snap.photoUrl).catch(err => console.log("Prefetch failed", err));
             }
         });
@@ -42,11 +41,9 @@ export default function InboxScreen() {
             const res = await getInbox();
             const newSnaps = res.data.data.snaps;
             setSnaps(newSnaps);
-            
-            // Trigger background download immediately
             prefetchImages(newSnaps);
         } catch (e) {
-            console.log("Error loading inbox", e);
+            console.log("Error loading inbox", e.message);
         } finally {
             setRefreshing(false);
         }
@@ -54,29 +51,24 @@ export default function InboxScreen() {
 
     // --- PHASE 2: REAL-TIME CONNECTION ---
     useEffect(() => {
-        // 1. Initial Load
         loadSnaps();
 
-        // 2. Initialize Socket
         console.log(`Connecting to socket at: ${SOCKET_URL}`);
+        
         const newSocket = io(SOCKET_URL, {
-            transports: ['websocket'], // Force websocket for better React Native performance
+            transports: ['websocket'], 
         });
         setSocket(newSocket);
 
-        // 3. Join User Room
         newSocket.on('connect', () => {
             console.log('✅ Connected to Socket Server');
             if (userInfo?.id) {
-                // UPDATED: Changed from 'join_user_room' to 'join_room' to match your backend
                 newSocket.emit('join_room', userInfo.id);
             }
         });
 
-        // 4. Listen for New Snaps (Push Notification)
         newSocket.on('new_snap', (data) => {
             console.log("⚡ Instant Snap Received!");
-            // Reload immediately to get populated data (username, etc.)
             loadSnaps(); 
         });
 
@@ -84,7 +76,6 @@ export default function InboxScreen() {
             console.log('❌ Socket Connection Error:', err.message);
         });
 
-        // Cleanup on unmount
         return () => newSocket.disconnect();
     }, [userInfo]);
 
@@ -93,10 +84,8 @@ export default function InboxScreen() {
             const res = await viewSnap(snapId);
             const { url, timer } = res.data.data;
             
-            // Image should already be cached by prefetchImages()
             setViewingSnap({ url, id: snapId });
             
-            // Timer Logic
             const duration = parseInt(timer);
             if (duration < 100) {
                 setTimeLeft(duration);
@@ -124,7 +113,7 @@ export default function InboxScreen() {
         setViewingSnap(null);
         if (timerInterval) clearInterval(timerInterval);
         setTimerInterval(null);
-        loadSnaps(); // Refresh list to remove the opened snap
+        loadSnaps(); 
     };
 
     const saveSnap = async () => {
@@ -135,7 +124,11 @@ export default function InboxScreen() {
                 Alert.alert("Permission needed", "We need storage access to save the snap.");
                 return;
             }
-            const fileUri = FileSystem.documentDirectory + "saved_snap.jpg";
+            
+            const isVideo = viewingSnap.url.endsWith('.mp4');
+            const fileName = `snap_saved.${isVideo ? 'mp4' : 'jpg'}`;
+            const fileUri = FileSystem.documentDirectory + fileName;
+            
             await FileSystem.downloadAsync(viewingSnap.url, fileUri);
             await MediaLibrary.createAssetAsync(fileUri);
             Alert.alert("Saved!", "Snap saved to gallery 📸");
@@ -144,8 +137,11 @@ export default function InboxScreen() {
         }
     };
 
+    // Helper to check media type
+    const isVideoSnap = viewingSnap?.url?.endsWith('.mp4');
+
     return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.title}>Inbox</Text>
                 <TouchableOpacity onPress={logout}>
@@ -178,10 +174,23 @@ export default function InboxScreen() {
             <Modal visible={!!viewingSnap} transparent={false} animationType="fade" onRequestClose={closeViewer}>
                 <SafeAreaView style={styles.viewerContainer}>
                     <TouchableOpacity activeOpacity={1} onPress={closeViewer} style={{flex:1}}>
-                        {/* This Image will now load INSTANTLY because 
-                           prefetchImages() downloaded it when the list loaded.
-                        */}
-                        <Image source={{ uri: viewingSnap?.url }} style={styles.fullImage} resizeMode="contain" />
+                        {/* FIX: RENDER VIDEO OR IMAGE BASED ON URL */}
+                        {isVideoSnap ? (
+                            <Video
+                                source={{ uri: viewingSnap.url }}
+                                style={styles.fullImage}
+                                resizeMode={ResizeMode.CONTAIN}
+                                shouldPlay
+                                isLooping
+                                useNativeControls={false} // Hide controls for Snapchat feel
+                            />
+                        ) : (
+                            <Image 
+                                source={{ uri: viewingSnap?.url }} 
+                                style={styles.fullImage} 
+                                resizeMode="contain" 
+                            />
+                        )}
                     </TouchableOpacity>
 
                     <View style={styles.timerBadge}>
@@ -193,13 +202,13 @@ export default function InboxScreen() {
                     </TouchableOpacity>
                 </SafeAreaView>
             </Modal>
-        </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: 'white', paddingTop: 50 },
-    header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, alignItems: 'center', marginBottom: 20 },
+    container: { flex: 1, backgroundColor: 'white' },
+    header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, alignItems: 'center', marginBottom: 20, marginTop: 10 },
     title: { fontSize: 30, fontWeight: 'bold', color: '#9d00ff' },
     logout: { color: 'red', fontWeight: 'bold' },
     userInfo: { paddingHorizontal: 20, marginBottom: 10 },
