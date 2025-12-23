@@ -15,6 +15,7 @@ import FadeInView from '../components/FadeInView';
 import GlassCard from '../components/GlassCard';
 import AnimatedButton from '../components/AnimatedButton';
 import { COLORS, TYPOGRAPHY, BORDER_RADIUS, SPACING } from '../constants/theme';
+import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
@@ -80,6 +81,7 @@ const SnapItem = ({ item, index, onOpen }) => {
 };
 
 export default function InboxScreen() {
+  const navigation = useNavigation();
   const { logout, userInfo } = useContext(AuthContext);
   const [snaps, setSnaps] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -187,45 +189,54 @@ export default function InboxScreen() {
     } catch (e) { Alert.alert("Error", "Save failed"); }
   };
 
+  const doubleTapToCamera = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      navigation.navigate('Camera');
+    });
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Inbox</Text>
-        <AnimatedButton onPress={logout}>
-          <Text style={styles.logout}>Logout</Text>
-        </AnimatedButton>
-      </View>
-
-      <FlatList
-        data={snaps}
-        keyExtractor={(item) => item._id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadSnaps} tintColor={COLORS.PRIMARY} />}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item, index }) => (
-          <SnapItem item={item} index={index} onOpen={openSnap} />
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>No new mellos!</Text>}
-        showsVerticalScrollIndicator={false}
-      />
-
-      <Modal visible={!!viewingSnap} transparent={false} animationType="fade">
-        <SafeAreaView style={styles.viewerContainer} edges={['top', 'bottom']}>
-          <AnimatedButton activeOpacity={1} onPress={closeViewer} style={{ flex: 1 }}>
-            {viewingSnap?.url?.endsWith('.mp4') ? (
-              <Video source={{ uri: viewingSnap.url }} style={styles.fullImage} resizeMode={ResizeMode.CONTAIN} shouldPlay isLooping />
-            ) : (
-              <Image source={{ uri: viewingSnap?.url }} style={styles.fullImage} contentFit="contain" />
-            )}
+    <GestureDetector gesture={doubleTapToCamera}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Inbox</Text>
+          <AnimatedButton onPress={logout}>
+            <Text style={styles.logout}>Logout</Text>
           </AnimatedButton>
-          <GlassCard style={styles.timerBadge}>
-            <Text style={styles.timerText}>{timeLeft}</Text>
-          </GlassCard>
-          <AnimatedButton onPress={saveSnap} style={styles.saveBtn}>
-            <Text style={styles.saveText}>⬇ Save</Text>
-          </AnimatedButton>
-        </SafeAreaView>
-      </Modal>
-    </SafeAreaView>
+        </View>
+
+        <FlatList
+          data={snaps}
+          keyExtractor={(item) => item._id}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadSnaps} tintColor={COLORS.PRIMARY} />}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item, index }) => (
+            <SnapItem item={item} index={index} onOpen={openSnap} />
+          )}
+          ListEmptyComponent={<Text style={styles.empty}>No new mellos!</Text>}
+          showsVerticalScrollIndicator={false}
+        />
+
+        <Modal visible={!!viewingSnap} transparent={false} animationType="fade">
+          <SafeAreaView style={styles.viewerContainer} edges={['top', 'bottom']}>
+            <AnimatedButton activeOpacity={1} onPress={closeViewer} style={{ flex: 1 }}>
+              {viewingSnap?.url?.endsWith('.mp4') ? (
+                <Video source={{ uri: viewingSnap.url }} style={styles.fullImage} resizeMode={ResizeMode.CONTAIN} shouldPlay isLooping />
+              ) : (
+                <Image source={{ uri: viewingSnap?.url }} style={styles.fullImage} contentFit="contain" />
+              )}
+            </AnimatedButton>
+            <GlassCard style={styles.timerBadge}>
+              <Text style={styles.timerText}>{timeLeft}</Text>
+            </GlassCard>
+            <AnimatedButton onPress={saveSnap} style={styles.saveBtn}>
+              <Text style={styles.saveText}>⬇ Save</Text>
+            </AnimatedButton>
+          </SafeAreaView>
+        </Modal>
+      </SafeAreaView>
+    </GestureDetector>
   );
 }
 
