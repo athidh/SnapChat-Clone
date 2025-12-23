@@ -15,9 +15,7 @@ import Animated, {
   withRepeat,
   Easing,
 } from 'react-native-reanimated';
-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
-import { useNavigation } from '@react-navigation/native';
 import { sendSnap, getFriendsData } from '../services/api';
 import CameraControl from '../components/CameraControl';
 import AnimatedButton from '../components/AnimatedButton';
@@ -28,7 +26,6 @@ import { COLORS, TYPOGRAPHY, BORDER_RADIUS, SPACING } from '../constants/theme';
 const { width, height } = Dimensions.get('window');
 
 export default function CameraScreen() {
-  const navigation = useNavigation();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
 
@@ -53,7 +50,6 @@ export default function CameraScreen() {
   const [filteredFriends, setFilteredFriends] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTimer, setSelectedTimer] = useState(10);
-  const [disappearingEnabled, setDisappearingEnabled] = useState(true);
 
   // Animation values
   const captureScale = useSharedValue(1);
@@ -274,7 +270,7 @@ export default function CameraScreen() {
   const handleSend = (recipientId) => {
     const fileUri = video || photo;
     const type = video ? 'video' : 'image';
-    const timer = disappearingEnabled ? selectedTimer : 999; // 999 == "∞" / non-disappearing
+    const timer = selectedTimer;
 
     setPhoto(null);
     setVideo(null);
@@ -381,41 +377,13 @@ export default function CameraScreen() {
                 <Text style={styles.modalTitle}>
                   Send {video ? 'Video' : 'Mello'} To...
                 </Text>
-
                 {!video && (
-                  <>
-                    <View style={styles.disappearRow}>
-                      <Text style={styles.disappearLabel}>Disappearing</Text>
-                      <AnimatedButton
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          setDisappearingEnabled(prev => !prev);
-                        }}
-                        style={[
-                          styles.disappearToggle,
-                          !disappearingEnabled && styles.disappearToggleOff,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.disappearToggleText,
-                            !disappearingEnabled && styles.disappearToggleTextOff,
-                          ]}
-                        >
-                          {disappearingEnabled ? 'On' : 'Off'}
-                        </Text>
-                      </AnimatedButton>
-                    </View>
-
-                    {disappearingEnabled && (
-                      <View style={styles.timerRow}>
-                        <Text style={styles.timerLabel}>Time:</Text>
-                        <TimerOption value={3} label="3s" />
-                        <TimerOption value={10} label="10s" />
-                        <TimerOption value={999} label="∞" />
-                      </View>
-                    )}
-                  </>
+                  <View style={styles.timerRow}>
+                    <Text style={styles.timerLabel}>Time:</Text>
+                    <TimerOption value={3} label="3s" />
+                    <TimerOption value={10} label="10s" />
+                    <TimerOption value={999} label="∞" />
+                  </View>
                 )}
                 <TextInput
                   style={styles.searchInput}
@@ -458,102 +426,93 @@ export default function CameraScreen() {
   }
 
   // MAIN CAMERA RENDER
-  const doubleTapToInbox = Gesture.Tap()
-    .numberOfTaps(2)
-    .onEnd(() => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      navigation.navigate('Inbox');
-    });
-
   return (
-    <GestureDetector gesture={doubleTapToInbox}>
-      <View style={styles.container}>
-        <CameraView
-          style={StyleSheet.absoluteFill}
-          facing={facing}
-          ref={cameraRef}
-          mode={cameraMode}
-        />
+    <View style={styles.container}>
+      <CameraView
+        style={StyleSheet.absoluteFill}
+        facing={facing}
+        ref={cameraRef}
+        mode={cameraMode}
+      />
 
-        {/* Top Controls - Magical Camera Controls */}
-        <SafeAreaView edges={['top']} style={styles.topControls}>
-          <FadeInView delay={100}>
-            <View style={styles.topControlsRow}>
-              <View style={styles.controlGroup}>
-                <CameraControl
-                  icon="↺"
-                  onPress={toggleCameraFacing}
-                  isActive={false}
-                  size={56}
-                />
-                <Text style={styles.controlLabel}>Flip</Text>
-              </View>
-              <View style={styles.controlGroup}>
-                <CameraControl
-                  icon={cameraTimer > 0 ? `${cameraTimer}s` : '⏲'}
-                  onPress={toggleTimer}
-                  isActive={cameraTimer > 0}
-                  activeColor={COLORS.PRIMARY}
-                  size={56}
-                />
-                <Text style={styles.controlLabel}>Timer</Text>
-              </View>
-              <View style={styles.controlGroup}>
-                <CameraControl
-                  icon="◐"
-                  onPress={toggleMirror}
-                  isActive={mirrorMode}
-                  activeColor={COLORS.PRIMARY}
-                  size={56}
-                />
-                <Text style={styles.controlLabel}>Mirror</Text>
-              </View>
-              <View style={styles.controlGroup}>
-                <CameraControl
-                  icon="▶︎"
-                  onPress={toggleCameraMode}
-                  isActive={cameraMode === 'video'}
-                  activeColor="#FF3B30"
-                  size={56}
-                />
-                <Text style={styles.controlLabel}>Video</Text>
-              </View>
+      {/* Top Controls - Magical Camera Controls */}
+      <SafeAreaView edges={['top']} style={styles.topControls}>
+        <FadeInView delay={100}>
+          <View style={styles.topControlsRow}>
+            <View style={styles.controlGroup}>
+              <CameraControl
+                icon="↺"
+                onPress={toggleCameraFacing}
+                isActive={false}
+                size={56}
+              />
+              <Text style={styles.controlLabel}>Flip</Text>
             </View>
-          </FadeInView>
-        </SafeAreaView>
-
-        {/* Countdown Overlay */}
-        {countdown > 0 && (
-          <View style={styles.countdownOverlay}>
-            <Animated.Text style={styles.countdownText}>{countdown}</Animated.Text>
+            <View style={styles.controlGroup}>
+              <CameraControl
+                icon={cameraTimer > 0 ? `${cameraTimer}s` : '⏲'}
+                onPress={toggleTimer}
+                isActive={cameraTimer > 0}
+                activeColor={COLORS.PRIMARY}
+                size={56}
+              />
+              <Text style={styles.controlLabel}>Timer</Text>
+            </View>
+            <View style={styles.controlGroup}>
+              <CameraControl
+                icon="◐"
+                onPress={toggleMirror}
+                isActive={mirrorMode}
+                activeColor={COLORS.PRIMARY}
+                size={56}
+              />
+              <Text style={styles.controlLabel}>Mirror</Text>
+            </View>
+            <View style={styles.controlGroup}>
+              <CameraControl
+                icon="▶︎"
+                onPress={toggleCameraMode}
+                isActive={cameraMode === 'video'}
+                activeColor="#FF3B30"
+                size={56}
+              />
+              <Text style={styles.controlLabel}>Video</Text>
+            </View>
           </View>
-        )}
+        </FadeInView>
+      </SafeAreaView>
 
-        {/* Bottom Controls - Capture Button */}
-        <SafeAreaView edges={['bottom']} style={styles.cameraFooter}>
-          <FadeInView delay={200}>
-            <AnimatedButton
-              onPress={handlePress}
-              onLongPress={handleLongPress}
-              onPressOut={handlePressOut}
-              delayLongPress={200}
-              style={styles.captureButtonContainer}
+      {/* Countdown Overlay */}
+      {countdown > 0 && (
+        <View style={styles.countdownOverlay}>
+          <Animated.Text style={styles.countdownText}>{countdown}</Animated.Text>
+        </View>
+      )}
+
+      {/* Bottom Controls - Capture Button */}
+      <SafeAreaView edges={['bottom']} style={styles.cameraFooter}>
+        <FadeInView delay={200}>
+          <AnimatedButton
+            onPress={handlePress}
+            onLongPress={handleLongPress}
+            onPressOut={handlePressOut}
+            delayLongPress={200}
+            style={styles.captureButtonContainer}
+          >
+            <Animated.View
+              style={[
+                styles.captureButton,
+                isRecording && styles.captureButtonRecording,
+                cameraMode === 'video' && !isRecording && styles.captureButtonVideoMode,
+                isRecording ? recordingButtonStyle : captureButtonStyle,
+              ]}
             >
-              <Animated.View
-                style={[
-                  styles.captureButton,
-                  isRecording && styles.captureButtonRecording,
-                  cameraMode === 'video' && !isRecording && styles.captureButtonVideoMode,
-                  isRecording ? recordingButtonStyle : captureButtonStyle,
-                ]}
-              >
-                {isRecording && <View style={styles.recordingIndicator} />}
-              </Animated.View>
-            </AnimatedButton>
-          </FadeInView>
-        </SafeAreaView>
-      </View>
-    </GestureDetector>
+              {isRecording && <View style={styles.recordingIndicator} />}
+            </Animated.View>
+          </AnimatedButton>
+        </FadeInView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -716,33 +675,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: SPACING.LG,
     gap: SPACING.SM,
-  },
-  disappearRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.MD,
-  },
-  disappearLabel: {
-    fontWeight: TYPOGRAPHY.WEIGHTS.BOLD,
-    color: COLORS.WHITE,
-    fontSize: TYPOGRAPHY.SIZES.MD,
-  },
-  disappearToggle: {
-    paddingVertical: SPACING.XS,
-    paddingHorizontal: SPACING.LG,
-    borderRadius: BORDER_RADIUS.LG,
-    backgroundColor: COLORS.ACCENT,
-  },
-  disappearToggleOff: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  disappearToggleText: {
-    color: COLORS.BLACK,
-    fontWeight: TYPOGRAPHY.WEIGHTS.BOLD,
-  },
-  disappearToggleTextOff: {
-    color: COLORS.WHITE,
   },
   timerLabel: {
     marginRight: SPACING.SM,
