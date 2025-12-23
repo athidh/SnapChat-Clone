@@ -20,10 +20,10 @@ const { width } = Dimensions.get('window');
 
 // --- CONFIGURATION ---
 // 🏠 LOCAL DEVELOPMENT
-const SOCKET_URL = 'http://192.168.20.2:3000'; 
+//const SOCKET_URL = 'http://192.168.20.2:3000'; 
 
 // 🚀 DEPLOYMENT
-//const SOCKET_URL = 'https://snapchat-clone-backend.onrender.com';
+const SOCKET_URL = 'https://snapchat-clone-backend.onrender.com';
 
 // --- SUB-COMPONENT: Preserves exact UI but fixes Hook Error ---
 const SnapItem = ({ item, index, onOpen }) => {
