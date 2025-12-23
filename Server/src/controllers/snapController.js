@@ -148,11 +148,15 @@ exports.viewSnap = async (req, res) => {
             }
         });
 
-        // Determine type for deletion
-        const isVideo = snap.photoUrl.match(/\.(mp4|mov|webm)$/i);
-        await cloudinary.uploader.destroy(snap.cloudinaryId, { 
-            resource_type: isVideo ? 'video' : 'image' 
-        });
+        // NOTE: Previously we deleted the asset from Cloudinary immediately after viewing,
+        // which caused saving other users' snaps to fail (404 when downloading again).
+        // If you want ephemerality, consider a scheduled cleanup job instead of
+        // destroying the asset right away.
+        //
+        // const isVideo = snap.photoUrl.match(/\.(mp4|mov|webm)$/i);
+        // await cloudinary.uploader.destroy(snap.cloudinaryId, { 
+        //     resource_type: isVideo ? 'video' : 'image' 
+        // });
 
     } catch (err) {
         res.status(500).json({ message: err.message });

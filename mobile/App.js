@@ -3,7 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // <--- REQUIRED FOR GESTURES
 
 // Components
 import AnimatedSplash from './src/components/AnimatedSplash';
@@ -38,8 +39,8 @@ function Navigation() {
 
   if (isLoading) {
     return (
-      <View style={{flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#000'}}>
-        <ActivityIndicator size="large" color="#FF6B35"/>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#CEFF00"/>
       </View>
     );
   }
@@ -71,11 +72,22 @@ export default function App() {
   }, []);
 
   return (
-    // Wrap everything in the AnimatedSplash
-    <AnimatedSplash isAppReady={appIsReady}>
-      <AuthProvider>
-        <Navigation />
-      </AuthProvider>
-    </AnimatedSplash>
+    // CRITICAL: GestureHandlerRootView must wrap the entire application
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AnimatedSplash isAppReady={appIsReady}>
+        <AuthProvider>
+          <Navigation />
+        </AuthProvider>
+      </AnimatedSplash>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+});

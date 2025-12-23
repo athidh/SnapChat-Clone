@@ -549,7 +549,9 @@ const styles = StyleSheet.create({
   },
   previewControls: {
     position: 'absolute',
-    bottom: 0,
+    // Lift the preview buttons above the bottom tab bar / navigation
+    // so they don't sit underneath it on real devices.
+    bottom: SPACING.XXL,
     left: 0,
     right: 0,
   },
