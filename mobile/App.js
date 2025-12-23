@@ -6,7 +6,8 @@ import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { ActivityIndicator, View } from 'react-native';
 
 // Components
-import AnimatedSplash from './src/components/AnimatedSplash'; // <--- NEW IMPORT
+import AnimatedSplash from './src/components/AnimatedSplash';
+import CustomTabBar from './src/components/CustomTabBar';
 
 // Screens
 import AuthScreen from './src/screens/AuthScreen';
@@ -21,7 +22,10 @@ const Tab = createBottomTabNavigator();
 // The "Inside App" Navigation (Tabs)
 function AppTabs() {
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle: { backgroundColor: 'black' }, tabBarActiveTintColor: '#FFFC00' }}>
+    <Tab.Navigator
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
       <Tab.Screen name="Camera" component={CameraScreen} />
       <Tab.Screen name="Inbox" component={InboxScreen} />
       <Tab.Screen name="Friends" component={FriendsScreen} />
@@ -35,7 +39,7 @@ function Navigation() {
   if (isLoading) {
     return (
       <View style={{flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#000'}}>
-        <ActivityIndicator size="large" color="#FFFC00"/>
+        <ActivityIndicator size="large" color="#FF6B35"/>
       </View>
     );
   }

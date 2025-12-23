@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Replace with your computer's local IP address
 // const BASE_URL = 'http://192.168.1.5:3000/api'; 
 
-// OPTION 3: Current Setting
+// OPTION 3: Current Setting (use http:// for local IP addresses)
 const BASE_URL = 'https://snapchat-clone-backend.onrender.com/api'; 
 
 const api = axios.create({
@@ -18,7 +18,7 @@ const api = axios.create({
     headers: { 'Content-Type': 'application/json' },
 });
 
-api.interceptors.request.use(async (config) => {
+api.interceptors.request.use(async (config) => {    
     const token = await AsyncStorage.getItem('userToken');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
